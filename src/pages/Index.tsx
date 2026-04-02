@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react';
 import { Shell } from '@/components/layout/Shell';
 import { cn } from '@/lib/utils';
 import { Link } from 'react-router-dom';
@@ -38,6 +39,13 @@ const Widget = ({
 
 // ─── Dashboard ──────────────────────────────────
 const Dashboard = () => {
+  const [currentTime, setCurrentTime] = useState(() => new Date());
+
+  useEffect(() => {
+    const timer = setInterval(() => setCurrentTime(new Date()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
   const liveState = useRealtimeMetrics();
   const metrics = useLatestMetrics();
   const traffic = useTrafficHistory(24);
@@ -83,9 +91,7 @@ const Dashboard = () => {
         {/* Minimal real-time status strip */}
         <div className="forti-toolbar">
           <div className="flex items-center gap-2 flex-1 text-[10px] text-[#999]">
-            {liveState.lastUpdate && (
-              <span>Updated {liveState.lastUpdate.toLocaleTimeString()}</span>
-            )}
+            <span>Updated {currentTime.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}</span>
           </div>
           <div className="flex items-center gap-1.5">
             {metrics.isLoading && <Loader2 size={11} className="animate-spin text-[#bbb]" />}

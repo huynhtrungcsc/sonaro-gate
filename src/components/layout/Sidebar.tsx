@@ -235,15 +235,17 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
       )}
       style={{ background: '#1e2d3d' }}
     >
-      {/* Logo area */}
+      {/* Logo area — click → Dashboard */}
       {!collapsed ? (
-        <div
-          className="h-10 flex items-center gap-2 px-3 border-b border-[#16232f] shrink-0"
+        <Link
+          to="/"
+          className="h-10 flex items-center gap-2 px-3 border-b border-[#16232f] shrink-0 cursor-pointer hover:brightness-110 transition-[filter] duration-150"
           style={{ background: 'linear-gradient(180deg, #0d2a14 0%, #112415 100%)' }}
+          title="Go to Dashboard"
         >
           <div className="flex items-center justify-center w-6 h-6 rounded shrink-0"
             style={{ background: 'rgba(74,222,128,0.12)', border: '1px solid rgba(74,222,128,0.28)' }}>
-            <img src={bugLogoSrc} alt="" className="w-4 h-4" />
+            <img src={bugLogoSrc} alt="Sonaro Gate" className="w-4 h-4" />
           </div>
           <div className="flex flex-col leading-none gap-0.5">
             <div className="flex items-baseline gap-1">
@@ -252,15 +254,19 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
             </div>
             <span className="text-[8px] font-mono tracking-widest" style={{ color: 'rgba(74,222,128,0.6)' }}>2025.1 LTS</span>
           </div>
-        </div>
+        </Link>
       ) : (
-        <div className="h-10 flex items-center justify-center border-b border-[#16232f] shrink-0"
-          style={{ background: 'linear-gradient(180deg, #0d2a14 0%, #112415 100%)' }}>
+        <Link
+          to="/"
+          className="h-10 flex items-center justify-center border-b border-[#16232f] shrink-0 cursor-pointer hover:brightness-110 transition-[filter] duration-150"
+          style={{ background: 'linear-gradient(180deg, #0d2a14 0%, #112415 100%)' }}
+          title="Go to Dashboard"
+        >
           <div className="flex items-center justify-center w-6 h-6 rounded"
             style={{ background: 'rgba(74,222,128,0.12)', border: '1px solid rgba(74,222,128,0.28)' }}>
-            <img src={bugLogoSrc} alt="" className="w-4 h-4" />
+            <img src={bugLogoSrc} alt="Sonaro Gate" className="w-4 h-4" />
           </div>
-        </div>
+        </Link>
       )}
 
       <nav className="flex-1 overflow-y-auto py-1">
