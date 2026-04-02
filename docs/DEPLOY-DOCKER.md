@@ -67,10 +67,16 @@ openssl rand -hex 32
 For production use with full iptables/NAT enforcement on the host:
 
 ```bash
-docker compose -f docker-compose.production.yml up -d
+# Recommended: use the production compose (both services on host network)
+docker compose -f deploy/docker-compose.prod.yml up -d --build
+
+# Or use the default compose (same network configuration, good for quick starts):
+docker compose up -d
 ```
 
-The production compose file uses `network_mode: host` and `privileged: true`, which means iptables rules apply to the real host kernel. It also includes Nginx as a reverse proxy on port 443 (HTTPS).
+The production compose uses `network_mode: host` and `privileged: true` on both services, so iptables rules apply to the real host kernel and the app can reach PostgreSQL at `127.0.0.1:5432`.
+
+For HTTPS, install Nginx on the host and use `deploy/nginx-ssl.conf` as your site config. See comments inside that file for step-by-step Certbot setup.
 
 ---
 

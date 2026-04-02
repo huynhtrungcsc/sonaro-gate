@@ -7,8 +7,8 @@
 #
 # GitHub:  https://github.com/huynhtrungcsc/sonaro-gate
 #
-# ⚠  NET_ADMIN / NET_RAW capabilities (or --privileged) are required
-#    for iptables, ip, sysctl, and netplan commands to function.
+# NOTE: --privileged (or CAP_NET_ADMIN + CAP_NET_RAW) is required for
+#       iptables, ip, sysctl, and netplan commands to function.
 # ─────────────────────────────────────────────────────────────────────────────
 
 # ── Stage 1: Build frontend ───────────────────────────────────────────────────
@@ -29,7 +29,7 @@ RUN npm run build
 # ── Stage 2: Production runtime ───────────────────────────────────────────────
 FROM node:20-alpine AS production
 
-# Install Linux networking tools used by the backend
+# Install Linux networking tools required by the backend
 RUN apk add --no-cache \
     iproute2 \
     iptables \
@@ -47,7 +47,7 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev --ignore-scripts
 
-# Copy server source (tsx transpiles at runtime — no compile step needed)
+# Copy server source (tsx transpiles at runtime)
 COPY server/   ./server/
 COPY shared/   ./shared/
 COPY tsconfig.json tsconfig.node.json ./
@@ -55,8 +55,8 @@ COPY tsconfig.json tsconfig.node.json ./
 # Copy built frontend
 COPY --from=builder /build/dist ./dist
 
-# Health check (unauthenticated /api/health endpoint)
-HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+# Health check via the unauthenticated /api/health endpoint
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=5 \
     CMD wget -qO- http://localhost:${PORT:-5000}/api/health || exit 1
 
 EXPOSE 5000
@@ -64,7 +64,9 @@ EXPOSE 5000
 ENV NODE_ENV=production \
     PORT=5000
 
-# Skip the CLI wizard in Docker (configure via env / web UI instead)
-ENV SONARO_SKIP_SETUP=1
+# Leave SONARO_SKIP_SETUP empty so the install.sh Docker mode (non-interactive)
+# can pass SONARO_SKIP_SETUP=1 via docker-compose, while keeping the default
+# behaviour of running the CLI wizard on bare-metal installs.
+ENV SONARO_SKIP_SETUP=
 
 CMD ["npx", "tsx", "server/index.ts"]

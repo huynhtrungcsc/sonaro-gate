@@ -108,9 +108,9 @@ sonaro-gate/
 ├── src/           React frontend (TypeScript, 43 pages)
 ├── server/        Express backend + iptables/netplan/suricata integration
 ├── shared/        Drizzle ORM schema (source of truth for DB + types)
-├── scripts/       setup-ubuntu.sh, deploy scripts, systemd service
-├── deploy/        One-command installer (install.sh)
-├── docker/        Nginx configs, PostgreSQL hardening, init.sql
+├── deploy/        install.sh, docker-compose.prod.yml, systemd unit, nginx configs
+├── scripts/       setup-ubuntu.sh, backup.sh, sonaro-agent
+├── docker/        init.sql, postgresql-hardened.conf
 ├── docs/          Architecture, deployment guides, handbook
 └── public/        Static assets (favicon, robots.txt)
 ```

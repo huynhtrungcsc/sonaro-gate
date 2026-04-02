@@ -1,0 +1,82 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Sonaro Gate • 2025.1 LTS  —  Production Docker Compose
+# GitHub: https://github.com/huynhtrungcsc/sonaro-gate
+#
+# Quick start:
+#   cp .env.example .env       # fill in POSTGRES_PASSWORD and JWT_SECRET
+#   docker compose -f deploy/docker-compose.prod.yml up -d --build
+#   docker compose -f deploy/docker-compose.prod.yml logs -f sonaro-gate
+#
+# Web UI: http://<server-ip>:5000
+# Login:  admin@sonaro.local / Admin123!  (change on first login)
+#
+# ── Network mode ─────────────────────────────────────────────────────────────
+# Both services use network_mode: host so:
+#   1. The app reaches PostgreSQL at 127.0.0.1:5432 (same host network)
+#   2. iptables / netplan / sysctl commands affect the REAL host kernel
+#
+# This is intentional for a firewall appliance — Sonaro Gate IS the network.
+# Do NOT change to bridge unless you are doing local development.
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+
+  # ── PostgreSQL 16 ─────────────────────────────────────────────────────────
+  db:
+    image: postgres:16-alpine
+    container_name: sonaro-db
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      POSTGRES_DB:       ${POSTGRES_DB:-sonaro_gate}
+      POSTGRES_USER:     ${POSTGRES_USER:-sonaro}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./docker/postgresql-hardened.conf:/etc/postgresql/postgresql.conf:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-sonaro} -d ${POSTGRES_DB:-sonaro_gate}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  # ── Sonaro Gate Application ────────────────────────────────────────────────
+  sonaro-gate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: sonaro-gate:latest
+    container_name: sonaro-gate
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+
+    # Host network + privileged → full iptables / netplan on the real kernel
+    network_mode: host
+    privileged: true
+
+    environment:
+      NODE_ENV:     production
+      PORT:         ${PORT:-5000}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-sonaro}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@127.0.0.1:5432/${POSTGRES_DB:-sonaro_gate}
+      JWT_SECRET:   ${JWT_SECRET:?JWT_SECRET must be set in .env}
+      ADMIN_EMAIL:  ${ADMIN_EMAIL:-admin@sonaro.local}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-Admin123!}
+      # Set to "1" to skip the CLI wizard (non-interactive / headless mode)
+      SONARO_SKIP_SETUP: ${SONARO_SKIP_SETUP:-1}
+
+    volumes:
+      # Write-through to the real host filesystem so configs survive container restarts
+      - /etc/netplan:/etc/netplan
+      - /etc/sysctl.d:/etc/sysctl.d
+      - /etc/iptables:/etc/iptables
+      - /etc/suricata:/etc/suricata
+      - /var/log/suricata:/var/log/suricata
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+
+volumes:
+  pgdata:
+    driver: local

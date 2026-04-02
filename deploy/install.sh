@@ -180,7 +180,7 @@ ENV
 
     cd "$INSTALL_DIR"
 
-    COMPOSE_FILE="docker/docker-compose.quickstart.yml"
+    COMPOSE_FILE="deploy/docker-compose.prod.yml"
 
     info "Building Docker image (first run takes 3–5 min)..."
     docker compose -f "$COMPOSE_FILE" --env-file .env build --quiet
