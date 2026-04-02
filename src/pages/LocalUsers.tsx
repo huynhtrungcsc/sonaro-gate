@@ -34,38 +34,6 @@ const roleColors: Record<string, string> = {
   'vpn-user': 'bg-purple-100 text-purple-700 border-purple-200',
 };
 
-const initialUsers: LocalUser[] = [
-  {
-    id: 'usr-1', username: 'admin', email: 'admin@sonaro.local', fullName: 'System Administrator',
-    role: 'admin', status: 'active', groups: ['Administrators', 'IT_Department'],
-    mfaEnabled: true, lastLogin: new Date(Date.now() - 3600000).toISOString(),
-    createdAt: '2024-01-01', comment: 'Primary administrative account',
-  },
-  {
-    id: 'usr-2', username: 'netops', email: 'netops@sonaro.local', fullName: 'Network Operations',
-    role: 'operator', status: 'active', groups: ['VPN_Users', 'IT_Department'],
-    mfaEnabled: true, lastLogin: new Date(Date.now() - 7200000).toISOString(),
-    createdAt: '2024-01-15', comment: 'Network operations team account',
-  },
-  {
-    id: 'usr-3', username: 'security_audit', email: 'audit@sonaro.local', fullName: 'Security Auditor',
-    role: 'readonly', status: 'active', groups: ['VPN_Users'],
-    mfaEnabled: false, lastLogin: new Date(Date.now() - 86400000).toISOString(),
-    createdAt: '2024-02-01', comment: 'Read-only security audit account',
-  },
-  {
-    id: 'usr-4', username: 'vpn_john', email: 'john.doe@company.com', fullName: 'John Doe',
-    role: 'vpn-user', status: 'active', groups: ['VPN_Users'],
-    mfaEnabled: false, lastLogin: new Date(Date.now() - 172800000).toISOString(),
-    createdAt: '2024-03-01', comment: 'Remote VPN user',
-  },
-  {
-    id: 'usr-5', username: 'guest_temp', email: 'guest@company.com', fullName: 'Guest Temporary',
-    role: 'vpn-user', status: 'disabled', groups: ['Guest_Access'],
-    mfaEnabled: false, createdAt: '2024-03-15', comment: 'Temporary guest account — disabled',
-  },
-];
-
 const emptyForm = {
   username: '', email: '', fullName: '', role: 'readonly' as LocalUser['role'],
   status: 'active' as LocalUser['status'], groups: '', mfaEnabled: false, comment: '',
@@ -74,7 +42,7 @@ const emptyForm = {
 const LocalUsers = () => {
   const queryClient = useQueryClient();
   const { data: dbSettings = [] } = useSystemSettings();
-  const [users, setUsers] = useState<LocalUser[]>(initialUsers);
+  const [users, setUsers] = useState<LocalUser[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');

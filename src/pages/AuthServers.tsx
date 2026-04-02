@@ -45,35 +45,6 @@ const defaultPorts: Record<ServerType, number> = {
   radius: 1812, ldap: 389, 'active-directory': 636, 'tacacs+': 49,
 };
 
-const initialServers: AuthServer[] = [
-  {
-    id: 'auth-1', name: 'Corporate_RADIUS', type: 'radius',
-    host: '192.168.10.10', port: 1812, status: 'active',
-    timeout: 5, retries: 3, authScheme: 'PAP',
-    comment: 'Primary RADIUS for VPN user authentication',
-    createdAt: '2024-01-15',
-  },
-  {
-    id: 'auth-2', name: 'Active_Directory', type: 'active-directory',
-    host: 'dc01.company.local', port: 636, status: 'active',
-    timeout: 5, retries: 2,
-    baseDn: 'DC=company,DC=local',
-    bindDn: 'CN=ldap_svc,OU=Service Accounts,DC=company,DC=local',
-    cnIdentifier: 'sAMAccountName',
-    comment: 'Primary AD domain controller for FSSO',
-    createdAt: '2024-01-20',
-  },
-  {
-    id: 'auth-3', name: 'Backup_LDAP', type: 'ldap',
-    host: '192.168.10.20', port: 389, status: 'inactive',
-    timeout: 10, retries: 2,
-    baseDn: 'OU=Users,DC=company,DC=local',
-    cnIdentifier: 'uid',
-    comment: 'Backup LDAP server — not in production',
-    createdAt: '2024-02-10',
-  },
-];
-
 const emptyForm = {
   name: '', type: 'radius' as ServerType,
   host: '', port: 1812, timeout: 5, retries: 3,
@@ -84,7 +55,7 @@ const emptyForm = {
 const AuthServers = () => {
   const queryClient = useQueryClient();
   const { data: dbSettings = [] } = useSystemSettings();
-  const [servers, setServers] = useState<AuthServer[]>(initialServers);
+  const [servers, setServers] = useState<AuthServer[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');

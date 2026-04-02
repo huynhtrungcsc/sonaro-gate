@@ -13,6 +13,42 @@ import {
 import { hashPassword } from './auth.js';
 import { eq, sql } from 'drizzle-orm';
 
+const INITIAL_LOCAL_USERS = JSON.stringify([
+  {
+    id: 'usr-1', username: 'netops', email: 'netops@sonaro.local', fullName: 'Network Operations',
+    role: 'operator', status: 'active', groups: ['VPN_Users', 'Administrators'],
+    mfaEnabled: true, createdAt: new Date().toISOString().split('T')[0],
+    comment: 'Network operations account',
+  },
+  {
+    id: 'usr-2', username: 'audit', email: 'audit@sonaro.local', fullName: 'Security Auditor',
+    role: 'readonly', status: 'active', groups: ['VPN_Users'],
+    mfaEnabled: false, createdAt: new Date().toISOString().split('T')[0],
+    comment: 'Read-only security audit account',
+  },
+]);
+
+const INITIAL_USER_GROUPS = JSON.stringify([
+  {
+    id: 'grp-1', name: 'Administrators', type: 'local',
+    members: ['netops'], matchType: 'any',
+    comment: 'Administrative access group',
+    createdAt: new Date().toISOString().split('T')[0], references: 0,
+  },
+  {
+    id: 'grp-2', name: 'VPN_Users', type: 'firewall',
+    members: ['netops', 'audit'], matchType: 'any',
+    comment: 'Users permitted VPN access',
+    createdAt: new Date().toISOString().split('T')[0], references: 0,
+  },
+  {
+    id: 'grp-3', name: 'Guest_Access', type: 'firewall',
+    members: [], matchType: 'any',
+    comment: 'Restricted guest internet access',
+    createdAt: new Date().toISOString().split('T')[0], references: 0,
+  },
+]);
+
 const SYSTEM_DEFAULTS = [
   { key: 'hostname', value: 'sonaro-gw-01', description: 'Firewall hostname' },
   { key: 'timezone', value: 'Asia/Ho_Chi_Minh', description: 'System timezone' },
@@ -25,6 +61,9 @@ const SYSTEM_DEFAULTS = [
   { key: 'ha_mode', value: 'Standalone', description: 'High Availability mode (Standalone/Active-Passive/Active-Active)' },
   { key: 'firmware_version', value: '2025.1 LTS', description: 'Firmware version string' },
   { key: 'serial_number', value: 'SONARO-GATE', description: 'Hardware serial number (auto-detected on boot)' },
+  { key: 'local_users', value: INITIAL_LOCAL_USERS, description: 'Firewall local user accounts (JSON)' },
+  { key: 'user_groups', value: INITIAL_USER_GROUPS, description: 'Firewall user groups (JSON)' },
+  { key: 'auth_servers', value: '[]', description: 'External authentication servers (JSON)' },
 ];
 
 async function ensureSystemSettings() {

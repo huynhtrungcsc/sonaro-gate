@@ -38,49 +38,10 @@ const typeColors: Record<string, string> = {
   local: 'bg-green-100 text-green-700 border-green-200',
 };
 
-const initialGroups: UserGroup[] = [
-  {
-    id: 'grp-1', name: 'Administrators', type: 'local',
-    members: ['admin', 'netops'], matchType: 'any',
-    comment: 'Full administrative access group',
-    createdAt: '2024-01-01', references: 5,
-  },
-  {
-    id: 'grp-2', name: 'VPN_Users', type: 'firewall',
-    members: ['netops', 'security_audit', 'readonly'], matchType: 'any',
-    comment: 'Users allowed VPN access',
-    createdAt: '2024-02-10', references: 3,
-  },
-  {
-    id: 'grp-3', name: 'Domain_Users', type: 'fsso',
-    members: ['CN=Domain Users,OU=Groups,DC=company,DC=com'], matchType: 'any',
-    comment: 'Active Directory domain users via FSSO',
-    createdAt: '2024-02-15', references: 8,
-  },
-  {
-    id: 'grp-4', name: 'RADIUS_Staff', type: 'radius',
-    members: ['staff-group'], matchType: 'any',
-    comment: 'RADIUS authenticated staff',
-    createdAt: '2024-03-01', references: 2,
-  },
-  {
-    id: 'grp-5', name: 'Guest_Access', type: 'firewall',
-    members: ['guest1', 'guest2'], matchType: 'any',
-    comment: 'Limited guest internet access',
-    createdAt: '2024-03-05', references: 1,
-  },
-  {
-    id: 'grp-6', name: 'IT_Department', type: 'local',
-    members: ['admin', 'netops', 'security_audit'], matchType: 'all',
-    comment: 'IT department members with elevated access',
-    createdAt: '2024-03-10', references: 4,
-  },
-];
-
 const UserGroups = () => {
   const queryClient = useQueryClient();
   const { data: dbSettings = [] } = useSystemSettings();
-  const [groups, setGroups] = useState<UserGroup[]>(initialGroups);
+  const [groups, setGroups] = useState<UserGroup[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');

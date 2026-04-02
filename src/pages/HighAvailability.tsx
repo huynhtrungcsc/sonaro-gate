@@ -49,35 +49,6 @@ interface ClusterMember {
   lastSync: Date;
 }
 
-const mockClusterMembers: ClusterMember[] = [
-  {
-    id: 'node-1',
-    hostname: 'SONARO-GW-01',
-    role: 'primary',
-    status: 'active',
-    priority: 200,
-    serialNumber: 'FGT60F0000000001',
-    uptime: 864000,
-    cpu: 23,
-    memory: 45,
-    sessions: 12458,
-    lastSync: new Date(Date.now() - 30000),
-  },
-  {
-    id: 'node-2',
-    hostname: 'SONARO-GW-02',
-    role: 'secondary',
-    status: 'passive',
-    priority: 100,
-    serialNumber: 'FGT60F0000000002',
-    uptime: 864000,
-    cpu: 5,
-    memory: 32,
-    sessions: 0,
-    lastSync: new Date(Date.now() - 30000),
-  },
-];
-
 const HighAvailability = () => {
   const queryClient = useQueryClient();
   const { data: dbSettings = [] } = useSystemSettings();

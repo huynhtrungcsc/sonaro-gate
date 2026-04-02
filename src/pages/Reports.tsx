@@ -24,18 +24,18 @@ interface Report {
   status: 'ready' | 'generating' | 'scheduled';
 }
 
-const mockReports: Report[] = [
-  { id: 'rpt-1', name: 'Security Summary', type: 'security', schedule: 'daily', lastGenerated: new Date(Date.now() - 3600000), size: '2.4 MB', status: 'ready' },
-  { id: 'rpt-2', name: 'Threat Analysis', type: 'security', schedule: 'weekly', lastGenerated: new Date(Date.now() - 86400000), size: '5.1 MB', status: 'ready' },
-  { id: 'rpt-3', name: 'Traffic Report', type: 'traffic', schedule: 'daily', lastGenerated: new Date(Date.now() - 7200000), size: '3.8 MB', status: 'ready' },
-  { id: 'rpt-4', name: 'Bandwidth Usage', type: 'traffic', schedule: 'monthly', lastGenerated: new Date(Date.now() - 604800000), size: '12.5 MB', status: 'ready' },
-  { id: 'rpt-5', name: 'System Health', type: 'system', schedule: 'daily', status: 'generating' },
-  { id: 'rpt-6', name: 'Compliance Audit', type: 'compliance', schedule: 'monthly', lastGenerated: new Date(Date.now() - 2592000000), size: '8.2 MB', status: 'ready' },
+const REPORT_TEMPLATES: Report[] = [
+  { id: 'rpt-1', name: 'Security Summary', type: 'security', schedule: 'daily', status: 'scheduled' },
+  { id: 'rpt-2', name: 'Threat Analysis', type: 'security', schedule: 'weekly', status: 'scheduled' },
+  { id: 'rpt-3', name: 'Traffic Report', type: 'traffic', schedule: 'daily', status: 'scheduled' },
+  { id: 'rpt-4', name: 'Bandwidth Usage', type: 'traffic', schedule: 'monthly', status: 'scheduled' },
+  { id: 'rpt-5', name: 'System Health', type: 'system', schedule: 'daily', status: 'scheduled' },
+  { id: 'rpt-6', name: 'Compliance Audit', type: 'compliance', schedule: 'monthly', status: 'scheduled' },
   { id: 'rpt-7', name: 'Firewall Rules Audit', type: 'compliance', schedule: 'weekly', status: 'scheduled' },
 ];
 
 const Reports = () => {
-  const [reports, setReports] = useState<Report[]>(mockReports);
+  const [reports, setReports] = useState<Report[]>(REPORT_TEMPLATES);
   const [filter, setFilter] = useState<'all' | 'security' | 'traffic' | 'system' | 'compliance'>('all');
   const [timeRange, setTimeRange] = useState('7d');
 
