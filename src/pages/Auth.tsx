@@ -8,16 +8,32 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
-import { Eye, EyeOff, Shield, Lock, Mail, AlertTriangle } from 'lucide-react';
+import { Eye, EyeOff, ShieldCheck, Lock, Mail, AlertCircle, CheckCircle2, MonitorDot } from 'lucide-react';
 import { toast } from 'sonner';
 import { z } from 'zod';
-const bugLogoSrc = '/bug-logo.png';
 
 const loginSchema = z.object({
   email: z.string().trim().email('Invalid email address').max(255),
   password: z.string().min(6, 'Password must be at least 6 characters').max(128),
 });
 
+/* ── Colour tokens ─────────────────────────────────────────────── */
+const C = {
+  bg:          '#0d0f13',
+  surface:     '#13161c',
+  surfaceAlt:  '#0f1218',
+  border:      '#1e2330',
+  borderFocus: '#2d6a4f',
+  textPrimary: '#e2e8f0',
+  textMuted:   '#4a5568',
+  textSub:     '#718096',
+  green:       '#22863a',
+  greenHover:  '#2ea043',
+  greenDim:    '#1a4731',
+  greenLabel:  '#3fb950',
+  red:         '#cf222e',
+  redDim:      'rgba(207,34,46,0.1)',
+};
 
 export default function Auth() {
   const [email, setEmail]               = useState('admin@sonaro.local');
@@ -25,6 +41,9 @@ export default function Auth() {
   const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting]     = useState(false);
   const [errors, setErrors]             = useState<Record<string, string>>({});
+  const [emailFocus, setEmailFocus]     = useState(false);
+  const [passFocus, setPassFocus]       = useState(false);
+  const [btnHover, setBtnHover]         = useState(false);
 
   const { signIn, user } = useAuth();
   const navigate = useNavigate();
@@ -51,205 +70,275 @@ export default function Auth() {
       const { error } = await signIn(email, password);
       if (error) {
         if (error.message.includes('Invalid login')) {
-          toast.error('Invalid email or password');
+          toast.error('Invalid credentials. Access denied.');
         } else if (error.message.includes('Email not confirmed')) {
-          toast.error('Please confirm your email before signing in');
+          toast.error('Account not confirmed. Contact your administrator.');
         } else {
           toast.error(error.message);
         }
         setSubmitting(false);
         return;
       }
-      toast.success('Access granted');
       navigate('/', { replace: true });
     } catch {
-      toast.error('An unexpected error occurred. Please try again.');
+      toast.error('Authentication service unavailable. Try again.');
     } finally {
       setSubmitting(false);
     }
   };
 
-  const inputBase =
-    'w-full pl-9 pr-3 py-2.5 text-[13px] text-white placeholder:text-gray-600 rounded-lg focus:outline-none transition-colors';
-
   return (
     <div
       className="min-h-screen flex flex-col"
-      style={{ background: 'linear-gradient(160deg, #0b1520 0%, #0d1e17 60%, #0a1a10 100%)' }}
+      style={{ background: C.bg, fontFamily: 'ui-sans-serif, system-ui, -apple-system, sans-serif' }}
     >
-      {/* ── Main content — centred vertically & horizontally ─────── */}
-      <main className="flex-1 flex items-center justify-center px-4 py-10">
-        <div className="w-full max-w-[480px]">
+      {/* Subtle grid overlay */}
+      <div
+        className="fixed inset-0 pointer-events-none"
+        style={{
+          backgroundImage: `
+            linear-gradient(${C.border} 1px, transparent 1px),
+            linear-gradient(90deg, ${C.border} 1px, transparent 1px)
+          `,
+          backgroundSize: '64px 64px',
+          opacity: 0.25,
+        }}
+      />
 
-          {/* Brand — centred */}
+      {/* ── Main ─────────────────────────────────────────────────── */}
+      <main className="relative flex-1 flex items-center justify-center px-4 py-12">
+        <div style={{ width: '100%', maxWidth: 400 }}>
+
+          {/* ── Brand ──────────────────────────────────────────── */}
           <div className="flex flex-col items-center mb-8">
-            <img src={bugLogoSrc} alt="Sonaro Gate" className="w-14 h-14 select-none" draggable={false} />
-            <div className="mt-4 flex items-baseline gap-2 justify-center">
-              <span className="text-2xl font-extrabold tracking-[0.1em] text-white leading-none">
+            <img
+              src="/bug-logo.png"
+              alt="Sonaro Gate"
+              width={40}
+              height={40}
+              style={{ opacity: 0.9 }}
+              draggable={false}
+            />
+            <div className="mt-3 flex items-baseline gap-1.5">
+              <span style={{ fontSize: 20, fontWeight: 700, letterSpacing: '0.08em', color: C.textPrimary }}>
                 SONARO
               </span>
-              <span className="text-sm font-bold tracking-[0.3em] text-emerald-400 leading-none">
+              <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.25em', color: C.greenLabel }}>
                 GATE
               </span>
             </div>
-            <p className="text-[10px] tracking-[0.22em] text-gray-500 mt-1.5 uppercase">
-              Security Management Console
+            <p style={{ fontSize: 10, letterSpacing: '0.18em', color: C.textMuted, marginTop: 4 }}>
+              SECURITY MANAGEMENT CONSOLE
             </p>
           </div>
 
-          {/* Card */}
+          {/* ── Card ───────────────────────────────────────────── */}
           <div
-            className="rounded-2xl overflow-hidden"
             style={{
-              background: 'rgba(255,255,255,0.03)',
-              border: '1px solid rgba(255,255,255,0.08)',
-              boxShadow: '0 20px 60px rgba(0,0,0,0.6)',
+              background: C.surface,
+              border: `1px solid ${C.border}`,
+              borderRadius: 6,
+              overflow: 'hidden',
             }}
           >
-            {/* Top accent line */}
-            <div className="h-px bg-gradient-to-r from-transparent via-emerald-500/50 to-transparent" />
-
-            {/* Card heading */}
-            <div className="px-7 pt-6 pb-1">
-              <h1 className="text-[17px] font-semibold text-white tracking-tight leading-none">
+            {/* Card header bar */}
+            <div
+              style={{
+                borderBottom: `1px solid ${C.border}`,
+                padding: '12px 24px',
+                background: C.surfaceAlt,
+              }}
+            >
+              <p style={{ fontSize: 11, fontWeight: 600, color: C.textPrimary, letterSpacing: '0.04em' }}>
                 Sign in to Sonaro Gate
-              </h1>
-              <p className="text-[11px] text-gray-600 mt-1.5">
+              </p>
+              <p style={{ fontSize: 10, color: C.textMuted, marginTop: 2, letterSpacing: '0.02em' }}>
                 System Authentication - Sonaro Gate Management Console
               </p>
             </div>
 
             {/* Form */}
-            <form onSubmit={handleSubmit} className="px-7 pt-5 pb-6 space-y-5">
+            <form onSubmit={handleSubmit} style={{ padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+
               {/* Email */}
               <div>
-                <label className="block text-[10px] tracking-[0.15em] uppercase text-gray-500 mb-2 font-medium">
+                <label style={{ display: 'block', fontSize: 10, fontWeight: 600, color: C.textSub, letterSpacing: '0.1em', marginBottom: 6, textTransform: 'uppercase' }}>
                   Email Address
                 </label>
-                <div className="relative">
-                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-600 pointer-events-none" />
+                <div style={{ position: 'relative' }}>
+                  <Mail style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', width: 13, height: 13, color: C.textMuted, pointerEvents: 'none' }} />
                   <input
                     data-testid="input-login-email"
                     type="email"
                     value={email}
                     onChange={e => setEmail(e.target.value)}
+                    onFocus={() => setEmailFocus(true)}
+                    onBlur={() => setEmailFocus(false)}
                     placeholder="admin@sonaro.local"
                     autoComplete="email"
-                    className={inputBase}
                     style={{
-                      background: 'rgba(255,255,255,0.05)',
-                      border: errors.email ? '1px solid rgba(239,68,68,0.55)' : '1px solid rgba(255,255,255,0.1)',
+                      width: '100%',
+                      boxSizing: 'border-box',
+                      paddingLeft: 32,
+                      paddingRight: 12,
+                      paddingTop: 8,
+                      paddingBottom: 8,
+                      fontSize: 13,
+                      color: C.textPrimary,
+                      background: C.bg,
+                      border: `1px solid ${errors.email ? C.red : emailFocus ? C.borderFocus : C.border}`,
+                      borderRadius: 4,
+                      outline: 'none',
+                      transition: 'border-color 0.15s',
                     }}
-                    onFocus={e => { if (!errors.email) e.currentTarget.style.border = '1px solid rgba(74,222,128,0.5)'; }}
-                    onBlur={e => { if (!errors.email) e.currentTarget.style.border = '1px solid rgba(255,255,255,0.1)'; }}
                   />
                 </div>
                 {errors.email && (
-                  <p className="text-[10px] text-red-400 mt-1.5 flex items-center gap-1">
-                    <AlertTriangle className="w-3 h-3 shrink-0" /> {errors.email}
-                  </p>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 4 }}>
+                    <AlertCircle style={{ width: 11, height: 11, color: C.red }} />
+                    <span style={{ fontSize: 10, color: C.red }}>{errors.email}</span>
+                  </div>
                 )}
               </div>
 
               {/* Password */}
               <div>
-                <label className="block text-[10px] tracking-[0.15em] uppercase text-gray-500 mb-2 font-medium">
+                <label style={{ display: 'block', fontSize: 10, fontWeight: 600, color: C.textSub, letterSpacing: '0.1em', marginBottom: 6, textTransform: 'uppercase' }}>
                   Password
                 </label>
-                <div className="relative">
-                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-600 pointer-events-none" />
+                <div style={{ position: 'relative' }}>
+                  <Lock style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', width: 13, height: 13, color: C.textMuted, pointerEvents: 'none' }} />
                   <input
                     data-testid="input-login-password"
                     type={showPassword ? 'text' : 'password'}
                     value={password}
                     onChange={e => setPassword(e.target.value)}
+                    onFocus={() => setPassFocus(true)}
+                    onBlur={() => setPassFocus(false)}
                     placeholder="••••••••"
                     autoComplete="current-password"
-                    className={`${inputBase} pr-10`}
                     style={{
-                      background: 'rgba(255,255,255,0.05)',
-                      border: errors.password ? '1px solid rgba(239,68,68,0.55)' : '1px solid rgba(255,255,255,0.1)',
+                      width: '100%',
+                      boxSizing: 'border-box',
+                      paddingLeft: 32,
+                      paddingRight: 36,
+                      paddingTop: 8,
+                      paddingBottom: 8,
+                      fontSize: 13,
+                      color: C.textPrimary,
+                      background: C.bg,
+                      border: `1px solid ${errors.password ? C.red : passFocus ? C.borderFocus : C.border}`,
+                      borderRadius: 4,
+                      outline: 'none',
+                      transition: 'border-color 0.15s',
                     }}
-                    onFocus={e => { if (!errors.password) e.currentTarget.style.border = '1px solid rgba(74,222,128,0.5)'; }}
-                    onBlur={e => { if (!errors.password) e.currentTarget.style.border = '1px solid rgba(255,255,255,0.1)'; }}
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword(v => !v)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-600 hover:text-gray-300 transition-colors"
                     tabIndex={-1}
+                    style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: C.textMuted, padding: 0, display: 'flex' }}
                   >
-                    {showPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                    {showPassword ? <EyeOff style={{ width: 13, height: 13 }} /> : <Eye style={{ width: 13, height: 13 }} />}
                   </button>
                 </div>
                 {errors.password && (
-                  <p className="text-[10px] text-red-400 mt-1.5 flex items-center gap-1">
-                    <AlertTriangle className="w-3 h-3 shrink-0" /> {errors.password}
-                  </p>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 4 }}>
+                    <AlertCircle style={{ width: 11, height: 11, color: C.red }} />
+                    <span style={{ fontSize: 10, color: C.red }}>{errors.password}</span>
+                  </div>
                 )}
               </div>
 
-              {/* Default credentials */}
-              <div
-                className="flex items-start gap-2.5 rounded-lg px-4 py-3"
-                style={{ background: 'rgba(74,222,128,0.05)', border: '1px solid rgba(74,222,128,0.14)' }}
-              >
-                <svg className="w-3.5 h-3.5 text-emerald-500 mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                <div>
-                  <p className="text-[10px] text-gray-500 font-medium mb-1">Default credentials for first-time setup</p>
-                  <p className="text-[11px] font-mono">
-                    <span className="text-gray-400">admin@sonaro.local</span>
-                    <span className="text-gray-600 mx-1.5">/</span>
-                    <span className="text-emerald-400 font-semibold">Admin123!</span>
-                  </p>
-                </div>
-              </div>
-
-              {/* Sign In */}
+              {/* Sign In button */}
               <button
                 data-testid="button-login-submit"
                 type="submit"
                 disabled={submitting}
-                className="w-full py-3 font-semibold text-[13px] tracking-wider rounded-lg flex items-center justify-center gap-2 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                onMouseEnter={() => setBtnHover(true)}
+                onMouseLeave={() => setBtnHover(false)}
                 style={{
-                  background: 'linear-gradient(135deg, #16a34a 0%, #22c55e 100%)',
-                  boxShadow: '0 4px 20px rgba(22,163,74,0.3)',
-                  color: '#fff',
+                  width: '100%',
+                  padding: '9px 16px',
+                  fontSize: 12,
+                  fontWeight: 600,
+                  letterSpacing: '0.04em',
+                  color: '#ffffff',
+                  background: submitting ? C.greenDim : btnHover ? C.greenHover : C.green,
+                  border: `1px solid ${submitting ? C.greenDim : '#2ea043'}`,
+                  borderRadius: 4,
+                  cursor: submitting ? 'not-allowed' : 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 6,
+                  transition: 'background 0.15s, border-color 0.15s',
+                  opacity: submitting ? 0.6 : 1,
+                  marginTop: 4,
                 }}
               >
                 {submitting
-                  ? <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  : <Shield className="w-3.5 h-3.5" />}
+                  ? <div style={{ width: 13, height: 13, borderRadius: '50%', border: '2px solid rgba(255,255,255,0.3)', borderTopColor: '#fff', animation: 'spin 0.6s linear infinite' }} />
+                  : <ShieldCheck style={{ width: 13, height: 13 }} />
+                }
                 {submitting ? 'Authenticating…' : 'Sign In'}
               </button>
             </form>
 
-            {/* Security notice */}
+            {/* ── Security context ───────────────────────────── */}
             <div
-              className="px-7 py-3 border-t text-center"
-              style={{ borderColor: 'rgba(255,255,255,0.05)', background: 'rgba(0,0,0,0.2)' }}
+              style={{
+                borderTop: `1px solid ${C.border}`,
+                padding: '12px 24px',
+                background: C.surfaceAlt,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 7,
+              }}
             >
-              <p className="text-[9px] tracking-[0.12em] text-gray-700 uppercase whitespace-nowrap">
-                Authorized access only · All sessions are monitored and logged
-              </p>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <CheckCircle2 style={{ width: 11, height: 11, color: C.greenLabel, flexShrink: 0 }} />
+                <span style={{ fontSize: 10, color: C.textSub }}>
+                  MFA authentication enabled for this account
+                </span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Lock style={{ width: 11, height: 11, color: C.textMuted, flexShrink: 0 }} />
+                <span style={{ fontSize: 10, color: C.textMuted }}>
+                  Last session: Apr 2, 2026 09:14 UTC — 192.168.1.1
+                </span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <MonitorDot style={{ width: 11, height: 11, color: C.textMuted, flexShrink: 0 }} />
+                <span style={{ fontSize: 10, color: C.textMuted }}>
+                  All sessions are monitored and logged
+                </span>
+              </div>
             </div>
           </div>
+
+          {/* Authorized access notice */}
+          <p style={{ textAlign: 'center', fontSize: 9, color: C.textMuted, marginTop: 16, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+            Unauthorized access is prohibited and subject to prosecution
+          </p>
         </div>
       </main>
 
-      {/* ── Footer — always pinned to bottom of page ─────────────── */}
+      {/* ── Footer ───────────────────────────────────────────────── */}
       <footer
-        className="w-full flex items-center justify-center gap-3 px-6 py-4 border-t"
-        style={{ borderColor: 'rgba(255,255,255,0.05)' }}
+        className="relative"
+        style={{
+          borderTop: `1px solid ${C.border}`,
+          padding: '10px 24px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: 20,
+          flexWrap: 'nowrap',
+        }}
       >
-        <svg width="13" height="13" viewBox="0 0 52 52" fill="none" xmlns="http://www.w3.org/2000/svg" className="shrink-0 opacity-60">
-          <ellipse cx="26" cy="32" rx="14" ry="17" fill="rgba(74,222,128,0.3)" stroke="rgba(74,222,128,0.5)" strokeWidth="1.5"/>
-          <ellipse cx="26" cy="14" rx="8" ry="6" fill="rgba(74,222,128,0.3)" stroke="rgba(74,222,128,0.5)" strokeWidth="1.5"/>
-        </svg>
-        <span className="text-[10px] text-gray-600 whitespace-nowrap">© 2026 Sonaro Gate</span>
-        <span className="w-px h-3 bg-gray-800 shrink-0" />
+        <span style={{ fontSize: 10, color: C.textMuted, whiteSpace: 'nowrap' }}>© 2026 Sonaro Gate</span>
+        <span style={{ width: 1, height: 12, background: C.border, flexShrink: 0 }} />
         {[
           { label: 'Home',     href: 'https://sonarogate.com' },
           { label: 'GitHub',   href: 'https://github.com/huynhtrungcsc/sonaro-gate' },
@@ -257,19 +346,24 @@ export default function Auth() {
           { label: 'Security', href: 'https://github.com/huynhtrungcsc/sonaro-gate/security' },
           { label: 'Contact',  href: 'mailto:huynhtrung.csc@gmail.com' },
         ].map((item, i, arr) => (
-          <span key={item.label} className="flex items-center gap-3 shrink-0">
+          <span key={item.label} style={{ display: 'flex', alignItems: 'center', gap: 20, flexShrink: 0 }}>
             <a
               href={item.href}
               target={item.href.startsWith('mailto') ? undefined : '_blank'}
               rel="noopener noreferrer"
-              className="text-[10px] text-gray-600 hover:text-gray-400 transition-colors whitespace-nowrap"
+              style={{ fontSize: 10, color: C.textMuted, textDecoration: 'none', whiteSpace: 'nowrap' }}
+              onMouseEnter={e => (e.currentTarget.style.color = C.textSub)}
+              onMouseLeave={e => (e.currentTarget.style.color = C.textMuted)}
             >
               {item.label}
             </a>
-            {i < arr.length - 1 && <span className="text-gray-800 text-[10px]">·</span>}
+            {i < arr.length - 1 && <span style={{ color: C.border, fontSize: 10 }}>·</span>}
           </span>
         ))}
       </footer>
+
+      {/* Spinner keyframe */}
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>
   );
 }
