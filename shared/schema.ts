@@ -1,3 +1,10 @@
+/**
+ * Sonaro Gate — Database Schema & Type Definitions
+ * Copyright (c) 2025 Huỳnh Chí Trung (0xDragon)
+ * https://github.com/huynhtrungcsc/sonaro-gate
+ * SPDX-License-Identifier: MIT
+ */
+
 import { pgTable, text, boolean, integer, bigint, decimal, timestamp, uuid, serial } from 'drizzle-orm/pg-core';
 import { createInsertSchema } from 'drizzle-zod';
 import { z } from 'zod';
@@ -99,6 +106,8 @@ export const vpnTunnels = pgTable('vpn_tunnels', {
   bytes_in: bigint('bytes_in', { mode: 'number' }).default(0),
   bytes_out: bigint('bytes_out', { mode: 'number' }).default(0),
   uptime: bigint('uptime', { mode: 'number' }).default(0),
+  config_json: text('config_json'),
+  comment: text('comment').default(''),
   created_at: timestamp('created_at', { withTimezone: true }).notNull().default(now()),
   updated_at: timestamp('updated_at', { withTimezone: true }).notNull().default(now()),
 });

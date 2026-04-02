@@ -1,3 +1,10 @@
+/**
+ * Sonaro Gate — Next-Generation Firewall Management Console
+ * Copyright (c) 2025 Huỳnh Chí Trung (0xDragon)
+ * https://github.com/huynhtrungcsc/sonaro-gate
+ * SPDX-License-Identifier: MIT
+ */
+
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";

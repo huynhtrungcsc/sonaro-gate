@@ -1,3 +1,10 @@
+/**
+ * Sonaro Gate — Database Migration Handler
+ * Copyright (c) 2025 Huỳnh Chí Trung (0xDragon)
+ * https://github.com/huynhtrungcsc/sonaro-gate
+ * SPDX-License-Identifier: MIT
+ */
+
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { sql } from 'drizzle-orm';
 import { db } from './db.js';

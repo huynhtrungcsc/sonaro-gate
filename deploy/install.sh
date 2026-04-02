@@ -2,6 +2,10 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # Sonaro Gate • 2025.1 LTS  —  One-Command Installer
 # ─────────────────────────────────────────────────────────────────────────────
+# Copyright (c) 2025 Huỳnh Chí Trung (0xDragon) <huynhtrungcsc@gmail.com>
+# SPDX-License-Identifier: MIT
+# https://github.com/huynhtrungcsc/sonaro-gate
+# ─────────────────────────────────────────────────────────────────────────────
 #
 # Quick start:
 #   curl -fsSL https://raw.githubusercontent.com/huynhtrungcsc/sonaro-gate/main/deploy/install.sh | sudo bash

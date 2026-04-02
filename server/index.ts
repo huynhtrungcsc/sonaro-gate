@@ -1,3 +1,10 @@
+/**
+ * Sonaro Gate — Next-Generation Firewall Management Console
+ * Copyright (c) 2025 Huỳnh Chí Trung (0xDragon)
+ * https://github.com/huynhtrungcsc/sonaro-gate
+ * SPDX-License-Identifier: MIT
+ */
+
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';

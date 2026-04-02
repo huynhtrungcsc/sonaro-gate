@@ -1,8 +1,12 @@
 /**
- * useRealtimeMetrics — WebSocket hook for live Dashboard data.
- * Connects to /ws, receives pushed events from the server agent
- * (metrics every 30s, traffic every 60s), and exposes live data
- * to the Dashboard without any polling or manual refresh.
+ * Sonaro Gate — useRealtimeMetrics
+ * WebSocket hook for live Dashboard data. Connects to /ws, receives pushed
+ * events from the server agent (metrics every 30s, traffic every 60s), and
+ * exposes live state to the Dashboard without polling or manual refresh.
+ *
+ * @author  Huỳnh Chí Trung (0xDragon) <huynhtrungcsc@gmail.com>
+ * @repo    https://github.com/huynhtrungcsc/sonaro-gate
+ * @license MIT
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
