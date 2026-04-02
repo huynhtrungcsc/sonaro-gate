@@ -1,0 +1,70 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Sonaro Gate • 2025.1 LTS  —  Quick-Start Compose
+# Used by: deploy/install.sh (Docker mode)
+#
+# Network design:
+#   - Both services use network_mode: host so the app can use iptables / netplan
+#     on the real host kernel AND reach PostgreSQL on localhost:5432.
+#   - The app and db share the host network namespace, so DATABASE_URL uses
+#     127.0.0.1 as the host (not a container alias).
+#
+# To start manually:
+#   cd /opt/sonaro
+#   docker compose -f docker/docker-compose.quickstart.yml up -d
+#
+# To watch logs:
+#   docker compose -f docker/docker-compose.quickstart.yml logs -f
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+
+  # ── PostgreSQL 16 ─────────────────────────────────────────────────────────
+  db:
+    image: postgres:16-alpine
+    container_name: sonaro-db
+    restart: unless-stopped
+    network_mode: host        # shares host network → reachable at 127.0.0.1:5432
+    environment:
+      POSTGRES_DB:            ${POSTGRES_DB:-sonaro_gate}
+      POSTGRES_USER:          ${POSTGRES_USER:-sonaro}
+      POSTGRES_PASSWORD:      ${POSTGRES_PASSWORD}
+    volumes:
+      - /opt/sonaro/data/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-sonaro} -d ${POSTGRES_DB:-sonaro_gate}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  # ── Sonaro Gate Application ────────────────────────────────────────────────
+  sonaro-gate:
+    build:
+      context: /opt/sonaro
+      dockerfile: Dockerfile
+    image: sonaro-gate:latest
+    container_name: sonaro-gate
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    network_mode: host        # shares host network → iptables/netplan affect real host NICs
+    privileged: true          # required for iptables, sysctl, ip commands
+
+    environment:
+      NODE_ENV:          production
+      PORT:              ${PORT:-5000}
+      DATABASE_URL:      postgresql://${POSTGRES_USER:-sonaro}:${POSTGRES_PASSWORD}@127.0.0.1:5432/${POSTGRES_DB:-sonaro_gate}
+      JWT_SECRET:        ${JWT_SECRET}
+      SONARO_SKIP_SETUP: ""   # empty = wizard runs on first interactive start
+
+    volumes:
+      # Persist network configs written by Sonaro Gate to the real host
+      - /etc/netplan:/etc/netplan
+      - /etc/sysctl.d:/etc/sysctl.d
+      - /etc/iptables:/etc/iptables
+      - /etc/suricata:/etc/suricata
+      - /var/log/suricata:/var/log/suricata
+      # Read host /proc and /sys for real metrics
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro

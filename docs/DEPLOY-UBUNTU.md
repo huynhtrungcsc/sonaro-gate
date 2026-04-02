@@ -12,13 +12,37 @@ If your server can reach the internet, this installs and starts everything:
 curl -fsSL https://raw.githubusercontent.com/huynhtrungcsc/sonaro-gate/main/deploy/install.sh | sudo bash
 ```
 
-What it does automatically:
-- Installs Node.js 20, PostgreSQL 16, Suricata, WireGuard, OpenVPN, dnsmasq
-- Creates the database and runs schema migrations
-- Copies files to `/opt/sonaro`
-- Creates and starts the `sonaro-gate` systemd service
+The script will ask you to choose between two modes:
 
-After this command finishes (5–10 minutes), proceed to **[CLI Network Setup](CLI-NETWORK-SETUP.md)** to configure your WAN/LAN/DMZ interfaces before first login.
+```
+  Choose install method:
+
+  [1] Docker  (recommended)
+      • Installs Docker Engine + starts containers
+      • Faster setup — no need to install Node.js or PostgreSQL manually
+      • Easy to update: git pull && docker compose up -d --build
+
+  [2] Native
+      • Installs Node.js 20 + PostgreSQL + Suricata directly on Ubuntu
+      • Full direct kernel access (iptables, netplan, sysctl)
+      • Runs as a systemd service: sonaro-gate.service
+
+  Choice [1]:
+```
+
+To skip the prompt:
+
+```bash
+# Docker (recommended — fast)
+curl -fsSL https://raw.githubusercontent.com/huynhtrungcsc/sonaro-gate/main/deploy/install.sh \
+  | sudo INSTALL_METHOD=docker bash
+
+# Native (bare-metal, full control)
+curl -fsSL https://raw.githubusercontent.com/huynhtrungcsc/sonaro-gate/main/deploy/install.sh \
+  | sudo INSTALL_METHOD=native bash
+```
+
+After this finishes (~3–10 minutes depending on method), proceed to **[CLI Network Setup](CLI-NETWORK-SETUP.md)** to configure your WAN/LAN/DMZ interfaces before first login.
 
 ---
 

@@ -21,7 +21,24 @@ Sonaro Gate turns any Ubuntu 24.04 LTS server (or bare-metal PC with two network
 curl -fsSL https://raw.githubusercontent.com/huynhtrungcsc/sonaro-gate/main/deploy/install.sh | sudo bash
 ```
 
-After install, run the CLI network wizard to configure your WAN/LAN interfaces before opening the web UI. See → **[CLI Network Setup Guide](docs/CLI-NETWORK-SETUP.md)**
+The installer asks you to choose:
+
+| Option | What happens |
+|---|---|
+| **[1] Docker** (default) | Installs Docker Engine → builds image → starts containers. Fast, easy to update. |
+| **[2] Native** | Installs Node.js 20 + PostgreSQL + Suricata directly on Ubuntu. Runs as systemd service. |
+
+To skip the prompt and force a mode:
+
+```bash
+# Force Docker
+curl -fsSL .../deploy/install.sh | sudo INSTALL_METHOD=docker bash
+
+# Force Native
+curl -fsSL .../deploy/install.sh | sudo INSTALL_METHOD=native bash
+```
+
+After install, run the CLI network wizard to configure WAN/LAN/DMZ interfaces before opening the web UI. See → **[CLI Network Setup Guide](docs/CLI-NETWORK-SETUP.md)**
 
 ---
 
