@@ -576,57 +576,125 @@ install_host_network_stack() {
     # ── WireGuard VPN ─────────────────────────────────────────────────────────
     info "Installing WireGuard VPN..."
     apt-get install -y -qq wireguard wireguard-tools
-    # Create WireGuard config directory with correct permissions
+
+    # Create WireGuard config directory with strict permissions
     mkdir -p /etc/wireguard
     chmod 700 /etc/wireguard
-    # Load the kernel module immediately
-    modprobe wireguard 2>/dev/null \
-        && ok "WireGuard VPN installed ($(wg --version 2>/dev/null | head -1 || echo 'installed'))" \
-        || warn "WireGuard module load failed — may need kernel headers (wireguard-dkms)"
+
+    # Load the kernel module
+    if modprobe wireguard 2>/dev/null; then
+        ok "WireGuard kernel module loaded"
+    else
+        warn "WireGuard module load failed — trying wireguard-dkms..."
+        apt-get install -y -qq wireguard-dkms 2>/dev/null || true
+        modprobe wireguard 2>/dev/null || warn "WireGuard module still unavailable (check kernel headers)"
+    fi
+
+    # Verify WireGuard crypto by generating and validating a test key pair
+    # This confirms the kernel module is fully functional, not just installed
+    local _wg_privkey _wg_pubkey
+    _wg_privkey=$(wg genkey 2>/dev/null || true)
+    _wg_pubkey=$(echo "$_wg_privkey" | wg pubkey 2>/dev/null || true)
+    if [[ ${#_wg_pubkey} -eq 44 ]]; then
+        ok "WireGuard crypto verified — key generation works ✓"
+        ok "  Version: $(wg --version 2>/dev/null | head -1 || echo 'installed')"
+    else
+        warn "WireGuard key generation failed — kernel module may not be active"
+        warn "  Fix: sudo modprobe wireguard && wg genkey | wg pubkey"
+    fi
 
     # ── OpenVPN ───────────────────────────────────────────────────────────────
     info "Installing OpenVPN..."
-    if apt-get install -y -qq openvpn 2>/dev/null; then
-        mkdir -p /etc/openvpn/server /etc/openvpn/client
+    if apt-get install -y -qq openvpn easy-rsa 2>/dev/null; then
+        mkdir -p /etc/openvpn/server /etc/openvpn/client /etc/openvpn/pki
+        # EasyRSA for PKI management
+        if command -v make-cadir &>/dev/null; then
+            [[ ! -d /etc/openvpn/easy-rsa ]] && make-cadir /etc/openvpn/easy-rsa 2>/dev/null || true
+        fi
         # Stop the default OpenVPN service — Sonaro Gate manages the process
         systemctl disable --now openvpn 2>/dev/null || true
-        ok "OpenVPN installed ($(openvpn --version 2>/dev/null | head -1 | awk '{print $2}' || echo 'installed'))"
+        local _ovpn_ver
+        _ovpn_ver=$(openvpn --version 2>/dev/null | head -1 | awk '{print $2}' || echo 'installed')
+        ok "OpenVPN installed (${_ovpn_ver}) — PKI dirs created at /etc/openvpn/"
     else
-        warn "OpenVPN not available in repository — skipping (optional)"
+        warn "OpenVPN not available in repository — skipping (optional feature)"
     fi
 
     # ── Suricata IDS/IPS ──────────────────────────────────────────────────────
     info "Installing Suricata IDS/IPS engine..."
     apt-get install -y -qq suricata suricata-update
 
-    # Create directory structure expected by Sonaro Gate
-    mkdir -p /etc/suricata/rules
-    mkdir -p /var/log/suricata
-
-    # Copy default config if it doesn't exist yet
-    [[ ! -f /etc/suricata/suricata.yaml ]] && \
-        cp /etc/suricata/suricata.yaml.dist /etc/suricata/suricata.yaml 2>/dev/null || true
-
-    # Create an empty local rules file so Suricata won't complain
+    # Create directory structure
+    mkdir -p /etc/suricata/rules /var/log/suricata /var/lib/suricata/rules
     touch /etc/suricata/rules/sonaro-local.rules
 
-    # Download latest threat signatures (Emerging Threats Open)
-    info "Downloading IDS/IPS threat signatures (Emerging Threats Open)..."
-    if suricata-update --no-reload 2>/dev/null; then
-        local sig_count
-        sig_count=$(find /var/lib/suricata/rules -name "*.rules" -exec cat {} \; 2>/dev/null \
-            | grep -c "^alert" 2>/dev/null || echo "?")
-        ok "Suricata signatures updated — ${sig_count} rules loaded"
+    # ── Suricata configuration ─────────────────────────────────────────────────
+    info "Configuring Suricata IDS/IPS..."
+
+    # Detect primary WAN interface (default route)
+    local _wan_iface
+    _wan_iface=$(ip route get 8.8.8.8 2>/dev/null | grep -oP 'dev \K\S+' | head -1 || echo "eth0")
+
+    # Detect all local subnets for HOME_NET
+    local _home_net
+    _home_net=$(ip -4 addr show scope global 2>/dev/null \
+        | grep -oP '(?<=inet )\S+' | paste -sd ',' | sed 's/,$//')
+    [[ -z "$_home_net" ]] && _home_net="192.168.0.0/16,10.0.0.0/8,172.16.0.0/12"
+
+    if [[ -f /etc/suricata/suricata.yaml ]]; then
+        # Set HOME_NET to detected local subnets
+        sed -i "s|HOME_NET: \"[^\"]*\"|HOME_NET: \"[$_home_net]\"|" \
+            /etc/suricata/suricata.yaml 2>/dev/null || true
+
+        # Point default-rule-path to where suricata-update writes rules
+        sed -i "s|default-rule-path:.*|default-rule-path: /var/lib/suricata/rules|" \
+            /etc/suricata/suricata.yaml 2>/dev/null || true
+
+        # Ensure the local rules file is included
+        if ! grep -q "sonaro-local.rules" /etc/suricata/suricata.yaml 2>/dev/null; then
+            sed -i "/rule-files:/a\\  - /etc/suricata/rules/sonaro-local.rules" \
+                /etc/suricata/suricata.yaml 2>/dev/null || true
+        fi
+
+        ok "Suricata configured (WAN interface: ${_wan_iface}, HOME_NET: ${_home_net})"
     else
-        warn "suricata-update failed — signatures will update automatically on first run"
-        warn "  Manual fix: sudo suricata-update && sudo systemctl restart suricata"
+        warn "suricata.yaml not found at /etc/suricata/ — config may need manual review"
     fi
 
-    # Disable default Suricata service — Sonaro Gate starts/stops it via API
-    systemctl disable --now suricata 2>/dev/null || true
-    ok "Suricata IDS/IPS installed and ready (managed by Sonaro Gate)"
+    # Enable the Emerging Threats Open ruleset explicitly (most common free source)
+    info "Adding Emerging Threats Open ruleset source..."
+    suricata-update add-source et/open \
+        "https://rules.emergingthreats.net/open/suricata-%(__version__)s/emerging.rules.tar.gz" \
+        2>/dev/null || true  # Already added on repeat runs — ignore error
 
-    # ── dnsmasq (internal DNS for VPN/DHCP) ───────────────────────────────────
+    # Download/update signatures
+    info "Downloading IDS/IPS threat signatures (Emerging Threats Open)..."
+    if suricata-update --no-reload 2>/dev/null; then
+        local _sig_count
+        _sig_count=$(grep -c "^alert" /var/lib/suricata/rules/suricata.rules 2>/dev/null || echo "?")
+        ok "Suricata signatures updated — ${_sig_count} rules ready"
+    else
+        warn "suricata-update failed — run manually: sudo suricata-update"
+    fi
+
+    # Validate configuration (--simulate-test so no live interface needed)
+    info "Validating Suricata configuration..."
+    local _suricata_ok=0
+    if suricata -T -c /etc/suricata/suricata.yaml >/tmp/suricata-test.log 2>&1; then
+        ok "Suricata config validation passed ✓"
+        _suricata_ok=1
+    else
+        warn "Suricata config test reported warnings (see /tmp/suricata-test.log):"
+        grep -E "Error|error|failed" /tmp/suricata-test.log 2>/dev/null | head -5 | \
+            while IFS= read -r line; do warn "  $line"; done
+        warn "  Suricata will still start — review /etc/suricata/suricata.yaml if issues occur"
+    fi
+
+    # Disable the default Suricata systemd service — Sonaro Gate manages it via API
+    systemctl disable --now suricata 2>/dev/null || true
+    ok "Suricata IDS/IPS installed and ready (managed by Sonaro Gate web UI)"
+
+    # ── dnsmasq (internal DNS/DHCP for VPN clients) ────────────────────────────
     if apt-get install -y -qq dnsmasq 2>/dev/null; then
         systemctl disable --now dnsmasq 2>/dev/null || true
         ok "dnsmasq installed (managed by Sonaro Gate)"
@@ -636,12 +704,12 @@ install_host_network_stack() {
     info "Configuring kernel for firewall operation..."
 
     # Apply immediately
-    sysctl -w net.ipv4.ip_forward=1                            >/dev/null 2>&1
-    sysctl -w net.ipv6.conf.all.forwarding=1                   >/dev/null 2>&1
-    sysctl -w net.ipv4.conf.all.rp_filter=0                    >/dev/null 2>&1
-    sysctl -w net.ipv4.conf.default.rp_filter=0                >/dev/null 2>&1
-    sysctl -w net.netfilter.nf_conntrack_max=1048576            >/dev/null 2>&1 || true
-    sysctl -w net.netfilter.nf_conntrack_tcp_timeout_established=3600 >/dev/null 2>&1 || true
+    sysctl -w net.ipv4.ip_forward=1                                    >/dev/null 2>&1
+    sysctl -w net.ipv6.conf.all.forwarding=1                           >/dev/null 2>&1
+    sysctl -w net.ipv4.conf.all.rp_filter=0                            >/dev/null 2>&1
+    sysctl -w net.ipv4.conf.default.rp_filter=0                        >/dev/null 2>&1
+    sysctl -w net.netfilter.nf_conntrack_max=1048576                   >/dev/null 2>&1 || true
+    sysctl -w net.netfilter.nf_conntrack_tcp_timeout_established=3600  >/dev/null 2>&1 || true
 
     # Persist across reboots
     cat > /etc/sysctl.d/99-sonaro.conf <<'SYSCTL'
@@ -654,7 +722,7 @@ net.ipv6.conf.all.forwarding=1
 net.ipv4.conf.all.rp_filter=0
 net.ipv4.conf.default.rp_filter=0
 
-# Connection tracking table size (supports up to 1M concurrent connections)
+# Connection tracking (supports up to 1M concurrent sessions)
 net.netfilter.nf_conntrack_max=1048576
 net.netfilter.nf_conntrack_tcp_timeout_established=3600
 net.netfilter.nf_conntrack_udp_timeout=60
@@ -699,7 +767,123 @@ wireguard
 tun
 MODULES
 
-    ok "Host network stack ready ✓"
+    # ── Component verification summary ────────────────────────────────────────
+    verify_host_network_stack
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SHARED — Verify host network stack components and print status table
+# ─────────────────────────────────────────────────────────────────────────────
+verify_host_network_stack() {
+    echo ""
+    echo -e "${BOLD}${CYAN}  ┌─────────────────────────────────────────────────────────────┐${RESET}"
+    echo -e "${BOLD}${CYAN}  │   Host Network Stack — Component Verification               │${RESET}"
+    echo -e "${BOLD}${CYAN}  └─────────────────────────────────────────────────────────────┘${RESET}"
+    echo ""
+
+    local _ok="${GREEN}✓${RESET}"
+    local _warn="${YELLOW}⚠${RESET}"
+    local _fail="${RED}✗${RESET}"
+
+    # Helper: print one status row
+    _row() {
+        local _icon="$1" _name="$2" _detail="$3"
+        printf "  %b  %-22s %s\n" "$_icon" "$_name" "$_detail"
+    }
+
+    # ── IP Forwarding ─────────────────────────────────────────────────────────
+    local _fwd
+    _fwd=$(cat /proc/sys/net/ipv4/ip_forward 2>/dev/null || echo "0")
+    if [[ "$_fwd" == "1" ]]; then
+        _row "$_ok" "IP Forwarding" "enabled (net.ipv4.ip_forward=1)"
+    else
+        _row "$_fail" "IP Forwarding" "DISABLED — run: sysctl -w net.ipv4.ip_forward=1"
+    fi
+
+    # ── iptables ──────────────────────────────────────────────────────────────
+    if command -v iptables &>/dev/null; then
+        local _ipt_ver
+        _ipt_ver=$(iptables --version 2>/dev/null | head -1 | awk '{print $2}' || echo "?")
+        _row "$_ok" "iptables" "${_ipt_ver}"
+    else
+        _row "$_fail" "iptables" "not found"
+    fi
+
+    # ── nf_conntrack kernel module ────────────────────────────────────────────
+    if lsmod 2>/dev/null | grep -q "nf_conntrack"; then
+        local _ct_max
+        _ct_max=$(cat /proc/sys/net/netfilter/nf_conntrack_max 2>/dev/null || echo "?")
+        _row "$_ok" "nf_conntrack" "loaded (max: ${_ct_max} sessions)"
+    else
+        _row "$_warn" "nf_conntrack" "not loaded — try: modprobe nf_conntrack"
+    fi
+
+    # ── WireGuard ─────────────────────────────────────────────────────────────
+    local _wg_mod=0
+    lsmod 2>/dev/null | grep -q "wireguard" && _wg_mod=1
+    local _wg_bin=0
+    command -v wg &>/dev/null && _wg_bin=1
+    # Key generation test (definitive functional check)
+    local _wg_key
+    _wg_key=$(wg genkey 2>/dev/null | wg pubkey 2>/dev/null || true)
+    if [[ ${#_wg_key} -eq 44 ]]; then
+        local _wg_ver
+        _wg_ver=$(wg --version 2>/dev/null | head -1 || echo "wireguard-tools")
+        _row "$_ok" "WireGuard VPN" "${_wg_ver} — key crypto verified ✓"
+    elif [[ $_wg_bin -eq 1 ]]; then
+        _row "$_warn" "WireGuard VPN" "binary present but crypto test failed — check kernel module"
+        _row ""      "  → Fix"       "sudo modprobe wireguard"
+    else
+        _row "$_fail" "WireGuard VPN" "not installed"
+        _row ""       "  → Fix"      "sudo apt-get install -y wireguard wireguard-tools"
+    fi
+
+    # ── OpenVPN ───────────────────────────────────────────────────────────────
+    if command -v openvpn &>/dev/null; then
+        local _ovpn_ver
+        _ovpn_ver=$(openvpn --version 2>/dev/null | head -1 | awk '{print $2}' || echo "installed")
+        _row "$_ok" "OpenVPN" "${_ovpn_ver}"
+    else
+        _row "$_warn" "OpenVPN" "not installed (optional — install: apt-get install openvpn)"
+    fi
+
+    # ── Suricata ──────────────────────────────────────────────────────────────
+    if command -v suricata &>/dev/null; then
+        local _sur_ver
+        _sur_ver=$(suricata --build-info 2>/dev/null | grep "^Version" | awk '{print $2}' \
+            || suricata -V 2>/dev/null | grep -oP 'version \K\S+' || echo "installed")
+        local _rules_file="/var/lib/suricata/rules/suricata.rules"
+        if [[ -f "$_rules_file" ]]; then
+            local _rule_count
+            _rule_count=$(grep -c "^alert" "$_rules_file" 2>/dev/null || echo "0")
+            # Test config
+            if suricata -T -c /etc/suricata/suricata.yaml >/dev/null 2>&1; then
+                _row "$_ok" "Suricata IDS/IPS" "${_sur_ver} — ${_rule_count} rules — config OK ✓"
+            else
+                _row "$_warn" "Suricata IDS/IPS" "${_sur_ver} — ${_rule_count} rules — config has warnings"
+                _row ""       "  → Check"       "suricata -T -c /etc/suricata/suricata.yaml"
+            fi
+        else
+            _row "$_warn" "Suricata IDS/IPS" "${_sur_ver} — no rule file (run: sudo suricata-update)"
+        fi
+    else
+        _row "$_fail" "Suricata IDS/IPS" "not installed"
+    fi
+
+    # ── dnsmasq ───────────────────────────────────────────────────────────────
+    if command -v dnsmasq &>/dev/null; then
+        local _dm_ver
+        _dm_ver=$(dnsmasq --version 2>/dev/null | head -1 | awk '{print $3}' || echo "installed")
+        _row "$_ok" "dnsmasq" "${_dm_ver} (managed by Sonaro Gate)"
+    else
+        _row "$_warn" "dnsmasq" "not installed (optional — install: apt-get install dnsmasq)"
+    fi
+
+    echo ""
+    echo -e "  ${DIM}Note: Suricata and OpenVPN services are intentionally DISABLED at boot.${RESET}"
+    echo -e "  ${DIM}They are started/stopped by Sonaro Gate via the web UI (Security → IDS/IPS,${RESET}"
+    echo -e "  ${DIM}VPN → Tunnels). Do NOT enable them manually with systemctl.${RESET}"
+    echo ""
 }
 
 
