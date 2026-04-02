@@ -1,0 +1,618 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* FortiGate Professional Enterprise Theme */
+/* Light, Clean, Enterprise-Grade UI */
+
+@layer base {
+  :root {
+    /* Light Theme - FortiGate Professional Style */
+    --background: 0 0% 96%;
+    --background-elevated: 0 0% 100%;
+    --foreground: 0 0% 10%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 0 0% 10%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 0 0% 10%;
+
+    /* Primary - FortiGate Green */
+    --primary: 142 70% 35%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 0 0% 92%;
+    --secondary-foreground: 0 0% 15%;
+
+    --muted: 0 0% 94%;
+    --muted-foreground: 0 0% 40%;
+
+    --accent: 0 0% 94%;
+    --accent-foreground: 0 0% 10%;
+
+    /* Semantic */
+    --destructive: 0 70% 50%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 0 0% 80%;
+    --input: 0 0% 100%;
+    --ring: 142 70% 35%;
+
+    --radius: 0.125rem;
+
+    /* FortiGate specific - Clear readable colors */
+    --forti-green: 142 70% 35%;
+    --forti-green-light: 142 60% 45%;
+    --forti-green-dark: 142 75% 28%;
+    --forti-header: 220 25% 18%;
+    --forti-sidebar: 220 25% 18%;
+    --forti-sidebar-hover: 220 22% 24%;
+    --forti-sidebar-active: 142 70% 35%;
+    --forti-row-hover: 50 100% 97%;
+    --forti-row-selected: 50 100% 92%;
+    --forti-gray: 0 0% 40%;
+    --forti-border: 0 0% 78%;
+    --forti-text: 0 0% 10%;
+    --forti-text-secondary: 0 0% 35%;
+
+    /* Sidebar */
+    --sidebar-background: 220 25% 18%;
+    --sidebar-foreground: 220 10% 75%;
+    --sidebar-primary: 142 70% 45%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 220 22% 24%;
+    --sidebar-accent-foreground: 0 0% 95%;
+    --sidebar-border: 220 22% 22%;
+    --sidebar-ring: 142 70% 45%;
+
+    /* Chart Colors */
+    --chart-1: 142 70% 40%;
+    --chart-2: 217 70% 50%;
+    --chart-3: 32 90% 50%;
+    --chart-4: 280 65% 55%;
+    --chart-5: 0 70% 55%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family: 'Segoe UI', 'Roboto', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+    font-size: 12px;
+    line-height: 1.4;
+  }
+
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: hsl(var(--muted));
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: hsl(var(--muted-foreground) / 0.3);
+    border-radius: 3px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--muted-foreground) / 0.5);
+  }
+}
+
+@layer components {
+  /* FortiGate Top Header Bar */
+  .forti-topbar {
+    @apply h-9 flex items-center justify-between px-3;
+    background: linear-gradient(180deg, #2d3e50 0%, #1e2d3d 100%);
+  }
+
+  .forti-topbar-logo {
+    @apply flex items-center gap-2 text-white;
+  }
+
+  .forti-topbar-logo span {
+    @apply text-sm font-bold tracking-tight;
+  }
+
+  .forti-topbar-device {
+    @apply text-xs text-gray-300 px-3 py-0.5 bg-white/10 rounded;
+  }
+
+  /* FortiGate Main Content Area */
+  .forti-content {
+    @apply bg-[#f5f5f5] min-h-screen;
+  }
+
+  /* FortiGate Section/Panel */
+  .section {
+    @apply bg-white border border-[#ddd] overflow-hidden;
+  }
+
+  .section-header {
+    @apply px-3 py-1.5 text-xs font-semibold text-white flex items-center justify-between;
+    background: linear-gradient(180deg, hsl(var(--forti-green)) 0%, hsl(var(--forti-green-dark)) 100%);
+  }
+
+  .section-header-neutral {
+    @apply px-3 py-1.5 text-xs font-semibold text-[#333] flex items-center justify-between bg-[#e8e8e8] border-b border-[#ccc];
+  }
+
+  .section-body {
+    @apply p-3 bg-white;
+  }
+
+  /* FortiGate Widget Style */
+  .widget {
+    @apply bg-white border border-[#ccc] overflow-hidden;
+  }
+
+  .widget-header {
+    @apply px-2 py-1 text-[11px] font-semibold text-white flex items-center justify-between;
+    background: linear-gradient(180deg, hsl(var(--forti-green)) 0%, hsl(var(--forti-green-dark)) 100%);
+  }
+
+  .widget-body {
+    @apply p-2 bg-white;
+  }
+
+  .widget-table {
+    @apply w-full text-[11px];
+  }
+
+  .widget-table td {
+    @apply py-1 border-b border-[#eee];
+  }
+
+  .widget-label {
+    @apply text-[#666] whitespace-nowrap pr-4;
+  }
+
+  .widget-value {
+    @apply text-[#333] font-medium;
+  }
+
+  /* FortiGate Data Table */
+  .data-table {
+    @apply w-full text-[11px] bg-white border border-[#ccc];
+  }
+
+  .data-table thead {
+    background: linear-gradient(180deg, #808080 0%, #606060 100%);
+  }
+
+  .data-table th {
+    @apply text-left text-white font-semibold text-[11px] py-1.5 px-2 border-r border-[#707070] last:border-r-0;
+  }
+
+  .data-table tbody tr {
+    @apply bg-white border-b border-[#ddd] transition-colors;
+  }
+
+  .data-table tbody tr:nth-child(even) {
+    @apply bg-[#fafafa];
+  }
+
+  .data-table tbody tr:hover {
+    @apply bg-[#fffde7];
+  }
+
+  .data-table tbody tr.selected {
+    @apply bg-[#fff8e1];
+  }
+
+  .data-table td {
+    @apply py-1.5 px-2 border-r border-[#eee] last:border-r-0;
+  }
+
+  /* FortiGate Group Header Row */
+  .data-table .group-header {
+    background: linear-gradient(180deg, #808080 0%, #666 100%);
+    @apply text-white text-[11px] font-semibold;
+  }
+
+  .data-table .group-header td {
+    @apply py-1 px-2 border-none;
+  }
+
+  /* FortiGate Toolbar */
+  .forti-toolbar {
+    @apply flex items-center gap-0.5 px-1 py-1 bg-[#f0f0f0] border-b border-[#ccc];
+  }
+
+  .forti-toolbar-btn {
+    @apply flex items-center gap-1 px-2 py-1 text-[11px] text-[#333] bg-white border border-[#ccc] hover:bg-[#e8e8e8] transition-colors;
+  }
+
+  .forti-toolbar-btn:disabled {
+    @apply text-[#999] bg-[#f5f5f5] cursor-not-allowed;
+  }
+
+  .forti-toolbar-btn.primary {
+    @apply text-[hsl(var(--forti-green))] font-semibold;
+  }
+
+  .forti-toolbar-separator {
+    @apply w-px h-5 bg-[#ccc] mx-1;
+  }
+
+  /* FortiGate Form Elements */
+  .forti-input {
+    @apply h-7 px-2 text-[11px] border border-[#ccc] bg-white focus:outline-none focus:border-[hsl(var(--forti-green))] focus:ring-1 focus:ring-[hsl(var(--forti-green))];
+  }
+
+  .forti-select {
+    @apply h-7 px-2 text-[11px] border border-[#ccc] bg-white focus:outline-none focus:border-[hsl(var(--forti-green))];
+  }
+
+  .forti-label {
+    @apply text-[11px] text-[#333] mb-0.5 block;
+  }
+
+  .forti-label-inline {
+    @apply text-[11px] text-[#666] whitespace-nowrap;
+  }
+
+  /* FortiGate Toggle Buttons (Enable/Disable) */
+  .forti-toggle-group {
+    @apply inline-flex overflow-hidden;
+  }
+
+  .forti-toggle-btn {
+    @apply px-3 py-1 text-[11px] font-medium border transition-colors;
+  }
+
+  .forti-toggle-btn.enable {
+    @apply bg-[hsl(var(--forti-green))] text-white border-[hsl(var(--forti-green-dark))];
+  }
+
+  .forti-toggle-btn.enable:not(.active) {
+    @apply bg-white text-[#666] border-[#ccc] hover:bg-[#f0f0f0];
+  }
+
+  .forti-toggle-btn.disable {
+    @apply bg-red-500 text-white border-red-600;
+  }
+
+  .forti-toggle-btn.disable:not(.active) {
+    @apply bg-white text-[#666] border-[#ccc] hover:bg-[#f0f0f0];
+  }
+
+  /* FortiGate View Toggle */
+  .forti-view-toggle {
+    @apply inline-flex border border-[#ccc] overflow-hidden;
+  }
+
+  .forti-view-btn {
+    @apply px-3 py-1 text-[11px] font-medium bg-white text-[#666] border-r border-[#ccc] last:border-r-0 hover:bg-[#f0f0f0] transition-colors;
+  }
+
+  .forti-view-btn.active {
+    @apply bg-[hsl(var(--forti-green))] text-white;
+  }
+
+  /* FortiGate Action Buttons */
+  .forti-action-btn {
+    @apply inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium border transition-colors;
+  }
+
+  .forti-action-btn.accept {
+    @apply text-[hsl(var(--forti-green))] bg-white border-[#ccc] hover:bg-green-50;
+  }
+
+  .forti-action-btn.deny {
+    @apply text-red-500 bg-white border-[#ccc] hover:bg-red-50;
+  }
+
+  .forti-action-btn.learn {
+    @apply text-blue-500 bg-white border-[#ccc] hover:bg-blue-50;
+  }
+
+  /* FortiGate Tags/Badges */
+  .forti-tag {
+    @apply text-[10px] font-medium px-2 py-0.5 border inline-block min-w-[100px] text-center rounded-sm;
+  }
+
+  .forti-tag.enabled {
+    @apply bg-green-100 text-green-700 border-green-200;
+  }
+
+  .forti-tag.disabled {
+    @apply bg-gray-100 text-gray-500 border-gray-200;
+  }
+
+  .forti-tag.utm {
+    @apply bg-blue-100 text-blue-700 border-blue-200;
+  }
+
+  /* FortiGate Access Badges */
+  .forti-access-badge {
+    @apply text-[9px] font-bold px-1 py-0.5 border;
+  }
+
+  .forti-access-badge.ping { @apply bg-green-100 text-green-700 border-green-300; }
+  .forti-access-badge.https { @apply bg-blue-100 text-blue-700 border-blue-300; }
+  .forti-access-badge.ssh { @apply bg-purple-100 text-purple-700 border-purple-300; }
+  .forti-access-badge.http { @apply bg-orange-100 text-orange-700 border-orange-300; }
+
+  /* FortiGate Status Indicators */
+  .forti-status {
+    @apply inline-flex items-center gap-1 text-[11px];
+  }
+
+  .forti-status-dot {
+    @apply w-2.5 h-2.5 rounded-full;
+  }
+
+  .forti-status-dot.up { @apply bg-green-500; }
+  .forti-status-dot.down { @apply bg-red-500; }
+  .forti-status-dot.warning { @apply bg-yellow-500; }
+
+  /* FortiGate Checkbox */
+  .forti-checkbox {
+    @apply w-3.5 h-3.5 border border-[#999] rounded-none bg-white accent-[hsl(var(--forti-green))];
+  }
+
+  /* FortiGate Progress Bars */
+  .forti-progress {
+    @apply h-3 bg-[#e8e8e8] border border-[#ccc] overflow-hidden;
+  }
+
+  .forti-progress-bar {
+    @apply h-full transition-all;
+  }
+
+  .forti-progress-bar.green { @apply bg-[hsl(var(--forti-green))]; }
+  .forti-progress-bar.blue { @apply bg-blue-500; }
+  .forti-progress-bar.orange { @apply bg-orange-500; }
+  .forti-progress-bar.red { @apply bg-red-500; }
+
+  /* FortiGate Port Indicator */
+  .forti-port {
+    @apply w-5 h-5 border text-[8px] font-bold flex items-center justify-center;
+  }
+
+  .forti-port.up {
+    @apply bg-green-500 border-green-600 text-white;
+  }
+
+  .forti-port.down {
+    @apply bg-[#ccc] border-[#999] text-[#666];
+  }
+
+  /* FortiGate Star Rating */
+  .forti-stars {
+    @apply flex items-center gap-0.5;
+  }
+
+  .forti-star {
+    @apply w-3 h-3;
+  }
+
+  .forti-star.filled {
+    @apply text-orange-400;
+  }
+
+  .forti-star.empty {
+    @apply text-gray-300;
+  }
+
+  /* FortiGate Risk Bars */
+  .forti-risk-bar {
+    @apply flex items-center gap-0.5;
+  }
+
+  .forti-risk-segment {
+    @apply w-2 h-3;
+  }
+
+  .forti-risk-segment.filled {
+    @apply bg-blue-500;
+  }
+
+  .forti-risk-segment.empty {
+    @apply bg-gray-200;
+  }
+
+  /* FortiGate Modal/Dialog */
+  .forti-modal-header {
+    @apply px-3 py-2 text-sm font-semibold text-white;
+    background: linear-gradient(180deg, hsl(var(--forti-green)) 0%, hsl(var(--forti-green-dark)) 100%);
+  }
+
+  .forti-modal-body {
+    @apply p-4 bg-white;
+  }
+
+  .forti-modal-footer {
+    @apply px-4 py-2 bg-[#f5f5f5] border-t border-[#ddd] flex items-center justify-center gap-2;
+  }
+
+  .forti-btn {
+    @apply px-4 py-1.5 text-[11px] font-medium transition-colors;
+  }
+
+  .forti-btn-primary {
+    @apply bg-[hsl(var(--forti-green))] text-white border border-[hsl(var(--forti-green-dark))] hover:bg-[hsl(var(--forti-green-dark))];
+  }
+
+  .forti-btn-secondary {
+    @apply bg-white text-[#333] border border-[#ccc] hover:bg-[#f0f0f0];
+  }
+
+  /* FortiGate Feature Toggle */
+  .forti-feature-item {
+    @apply flex items-center justify-between px-3 py-2 border border-[#ddd] bg-white hover:bg-[#fafafa] transition-colors;
+  }
+
+  .forti-feature-toggle {
+    @apply relative w-10 h-5 rounded-full transition-colors cursor-pointer;
+  }
+
+  .forti-feature-toggle.enabled {
+    @apply bg-[hsl(var(--forti-green))];
+  }
+
+  .forti-feature-toggle.disabled {
+    @apply bg-[#ccc];
+  }
+
+  .forti-feature-toggle-knob {
+    @apply absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all;
+  }
+
+  .forti-feature-toggle.enabled .forti-feature-toggle-knob {
+    @apply left-[22px];
+  }
+
+  .forti-feature-toggle.disabled .forti-feature-toggle-knob {
+    @apply left-0.5;
+  }
+
+  /* FortiGate Search Box */
+  .forti-search {
+    @apply flex items-center gap-2 px-2 py-1 bg-white border border-[#ccc];
+  }
+
+  .forti-search input {
+    @apply text-[11px] bg-transparent outline-none flex-1 text-[#333] placeholder-[#999];
+  }
+
+  /* Navigation Sidebar Items */
+  .nav-section {
+    @apply text-[10px] font-bold uppercase tracking-wider text-gray-400 px-3 py-2 mt-2 first:mt-0;
+  }
+
+  .nav-item {
+    @apply flex items-center gap-2 px-3 py-1.5 text-[12px] text-gray-300 transition-all cursor-pointer;
+  }
+
+  .nav-item:hover {
+    @apply bg-[hsl(var(--forti-sidebar-hover))] text-white;
+  }
+
+  .nav-item.active {
+    @apply bg-[hsl(var(--forti-green))] text-white;
+  }
+
+  /* Monospace */
+  .mono {
+    font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+    font-size: 11px;
+  }
+
+  /* Summary Strip - Horizontal Stats */
+  .summary-strip {
+    @apply flex items-center gap-4 px-4 py-3 bg-white border border-[#ddd];
+  }
+
+  .summary-item {
+    @apply flex items-center gap-2;
+  }
+
+  .summary-count {
+    @apply text-lg font-bold;
+  }
+
+  .summary-label {
+    @apply text-[11px] text-[#666];
+  }
+
+  /* FortiGate Stats Bar - Authentic FortiGate Style */
+  .forti-stats-bar {
+    @apply grid auto-cols-fr grid-flow-col border border-border rounded-sm overflow-hidden;
+    background: hsl(var(--card));
+  }
+
+  .forti-stat-item {
+    @apply flex items-center gap-3 py-2.5 px-4 border-r border-border last:border-r-0 transition-all duration-150 cursor-default;
+    background: linear-gradient(180deg, hsl(var(--card)) 0%, hsl(var(--muted) / 0.3) 100%);
+  }
+
+  .forti-stat-item:hover {
+    background: linear-gradient(180deg, hsl(var(--muted) / 0.2) 0%, hsl(var(--muted) / 0.5) 100%);
+  }
+
+  .forti-stat-icon-wrap {
+    @apply flex items-center justify-center w-9 h-9 rounded;
+    background: hsl(var(--muted) / 0.6);
+    border: 1px solid hsl(var(--border));
+  }
+
+  .forti-stat-value {
+    @apply text-lg font-bold tracking-tight leading-none text-foreground;
+  }
+
+  .forti-stat-label {
+    @apply text-xs font-medium leading-none text-muted-foreground;
+  }
+
+  /* Status Dots */
+  .status-dot-lg {
+    @apply w-3 h-3 rounded-full;
+  }
+
+  .status-critical { @apply bg-red-500; }
+  .status-high { @apply bg-orange-500; }
+  .status-medium { @apply bg-yellow-500; }
+  .status-low { @apply bg-blue-500; }
+
+  /* Text status colors */
+  .text-status-critical { @apply text-red-600; }
+  .text-status-high { @apply text-orange-600; }
+  .text-status-medium { @apply text-yellow-600; }
+  .text-status-low { @apply text-blue-600; }
+
+  /* Action Strip */
+  .action-strip {
+    @apply flex items-center gap-2 px-3 py-2 bg-[#f5f5f5] border border-[#ddd];
+  }
+
+  /* Tags */
+  .tag {
+    @apply text-[10px] font-semibold px-2 py-0.5 uppercase inline-block min-w-[80px] text-center;
+  }
+
+  .tag-critical {
+    @apply bg-red-100 text-red-700 border border-red-200;
+  }
+
+  .tag-high {
+    @apply bg-orange-100 text-orange-700 border border-orange-200;
+  }
+
+  .tag-medium {
+    @apply bg-yellow-100 text-yellow-700 border border-yellow-200;
+  }
+
+  .tag-low {
+    @apply bg-blue-100 text-blue-700 border border-blue-200;
+  }
+
+  .tag-healthy {
+    @apply bg-green-100 text-green-700 border border-green-200;
+  }
+
+  /* Buttons */
+  .btn {
+    @apply inline-flex items-center gap-1 px-3 py-1.5 text-[11px] font-medium transition-colors cursor-pointer;
+  }
+
+  .btn-outline {
+    @apply bg-white text-[#333] border border-[#ccc] hover:bg-[#f0f0f0];
+  }
+
+  .btn-ghost {
+    @apply bg-transparent hover:bg-[#f0f0f0] p-1;
+  }
+
+  .btn-primary {
+    @apply bg-[hsl(142,70%,35%)] text-white border border-[hsl(142,75%,28%)] hover:bg-[hsl(142,75%,28%)];
+  }
+}

@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "y_RBTdCW5jl0zvJBVNkxC"
+uri = "file://docs/HANDBOOK.md"
+type = "text"
+title = "Sonaro Gate 2025.1 LTS — Handbook"

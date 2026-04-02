@@ -1,0 +1,36 @@
+# ============================================
+# Aegis NGFW - Production Dockerfile
+# Multi-stage build with rate-limiting support
+# ============================================
+
+# Stage 1: Build
+FROM node:20-alpine AS builder
+WORKDIR /app
+
+COPY package.json bun.lockb ./
+RUN npm install --frozen-lockfile
+
+COPY . .
+
+ARG VITE_API_URL="/api"
+
+RUN npm run build
+
+# Stage 2: Production Nginx with rate-limit config
+FROM nginx:1.27-alpine AS production
+
+# Add rate limiting zones to main nginx.conf
+RUN sed -i '/http {/a \    limit_req_zone $binary_remote_addr zone=api:10m rate=30r/s;\n    limit_req_zone $binary_remote_addr zone=login:10m rate=5r/m;' /etc/nginx/nginx.conf
+
+# Copy production nginx site config
+COPY docker/nginx-production.conf /etc/nginx/templates/default.conf.template
+
+# Copy built files
+COPY --from=builder /app/dist /usr/share/nginx/html
+
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD wget -qO- http://localhost:80/health || exit 1
+
+EXPOSE 80 443
+
+CMD ["nginx", "-g", "daemon off;"]

@@ -1,0 +1,88 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Sonaro Gate • 2025.1 LTS  —  Docker Compose (Development / Quick-start)
+# GitHub: https://github.com/huynhtrungcsc/sonaro-gate
+#
+# Quick start:
+#   cp .env.example .env          # edit passwords!
+#   docker compose up -d
+#   docker compose logs -f sonaro-gate
+#
+# Web UI: http://localhost:5000
+# Login:  admin@sonaro.local / Admin123!  (change on first login)
+#
+# ⚠  For full iptables/NAT enforcement the container MUST run with
+#    privileged: true  OR  cap_add: [NET_ADMIN, NET_RAW]
+#    On a bare-metal Ubuntu host the rules apply to the host kernel.
+#    Inside Docker-on-Docker (CI/dev) rules apply inside the container only.
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+
+  # ── PostgreSQL 16 ─────────────────────────────────────────────────────────
+  db:
+    image: postgres:16-alpine
+    container_name: sonaro-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB:       ${POSTGRES_DB:-sonaro_gate}
+      POSTGRES_USER:     ${POSTGRES_USER:-sonaro}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme!}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-sonaro} -d ${POSTGRES_DB:-sonaro_gate}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - sonaro-net
+
+  # ── Sonaro Gate Application ────────────────────────────────────────────────
+  sonaro-gate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: sonaro-gate
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+
+    # ── Networking privileges (required for iptables / ip commands) ──────
+    # Option A (recommended for production bare-metal):
+    privileged: true
+    network_mode: host          # shares host network namespace → real NIC access
+
+    # Option B (development / Docker Desktop — comment out the two lines above
+    #           and uncomment the four lines below):
+    # cap_add: [NET_ADMIN, NET_RAW]
+    # ports:
+    #   - "${PORT:-5000}:5000"
+    # networks:
+    #   - sonaro-net
+
+    environment:
+      NODE_ENV:          production
+      PORT:              ${PORT:-5000}
+      DATABASE_URL:      postgresql://${POSTGRES_USER:-sonaro}:${POSTGRES_PASSWORD:-changeme!}@localhost:5432/${POSTGRES_DB:-sonaro_gate}
+      JWT_SECRET:        ${JWT_SECRET:-change-this-to-a-long-random-string-in-production!}
+      SONARO_SKIP_SETUP: "1"     # disable CLI wizard in Docker; configure via web UI
+
+    volumes:
+      # Persist netplan configs written by Sonaro Gate
+      - /etc/netplan:/etc/netplan
+      # Allow sysctl writes
+      - /etc/sysctl.d:/etc/sysctl.d
+      # Persist iptables rules for iptables-save
+      - /etc/iptables:/etc/iptables
+      # Suricata rules and logs
+      - /etc/suricata:/etc/suricata
+      - /var/log/suricata:/var/log/suricata
+
+volumes:
+  pgdata:
+    driver: local
+
+networks:
+  sonaro-net:
+    driver: bridge
