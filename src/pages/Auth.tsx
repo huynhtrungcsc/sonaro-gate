@@ -11,67 +11,13 @@ import { useAuth } from '@/contexts/AuthContext';
 import { Eye, EyeOff, Shield, Lock, Mail, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 import { z } from 'zod';
+const bugLogoSrc = '/bug-logo.png';
 
 const loginSchema = z.object({
   email: z.string().trim().email('Invalid email address').max(255),
   password: z.string().min(6, 'Password must be at least 6 characters').max(128),
 });
 
-/* ── Bug icon — stylised geometric beetle ───────────────────────── */
-function BugLogo() {
-  return (
-    <svg width="52" height="52" viewBox="0 0 52 52" fill="none" xmlns="http://www.w3.org/2000/svg">
-      {/* Antennae */}
-      <line x1="18" y1="10" x2="10" y2="2"  stroke="#4ade80" strokeWidth="2" strokeLinecap="round"/>
-      <line x1="34" y1="10" x2="42" y2="2"  stroke="#4ade80" strokeWidth="2" strokeLinecap="round"/>
-      <circle cx="10" cy="2"  r="1.5" fill="#4ade80"/>
-      <circle cx="42" cy="2"  r="1.5" fill="#4ade80"/>
-      {/* Head */}
-      <ellipse cx="26" cy="13" rx="9" ry="7"
-        fill="url(#bug-head)" stroke="rgba(74,222,128,0.5)" strokeWidth="1"/>
-      {/* Eyes */}
-      <circle cx="21.5" cy="12" r="2" fill="#fff" opacity="0.9"/>
-      <circle cx="30.5" cy="12" r="2" fill="#fff" opacity="0.9"/>
-      <circle cx="21.5" cy="12" r="0.8" fill="#0d2010"/>
-      <circle cx="30.5" cy="12" r="0.8" fill="#0d2010"/>
-      {/* Body shell (elytra) — left half */}
-      <path d="M17 20 Q10 24 11 36 Q14 46 26 47 L26 18 Q22 18 17 20Z"
-        fill="url(#bug-left)" stroke="rgba(74,222,128,0.4)" strokeWidth="0.8"/>
-      {/* Body shell — right half */}
-      <path d="M35 20 Q42 24 41 36 Q38 46 26 47 L26 18 Q30 18 35 20Z"
-        fill="url(#bug-right)" stroke="rgba(74,222,128,0.4)" strokeWidth="0.8"/>
-      {/* Centre line */}
-      <line x1="26" y1="18" x2="26" y2="47" stroke="rgba(74,222,128,0.35)" strokeWidth="1"/>
-      {/* Spot pattern */}
-      <circle cx="20" cy="28" r="2.5" fill="rgba(74,222,128,0.18)"/>
-      <circle cx="20" cy="37" r="2"   fill="rgba(74,222,128,0.18)"/>
-      <circle cx="32" cy="28" r="2.5" fill="rgba(74,222,128,0.18)"/>
-      <circle cx="32" cy="37" r="2"   fill="rgba(74,222,128,0.18)"/>
-      {/* Legs — left */}
-      <line x1="14" y1="24" x2="4"  y2="20" stroke="#4ade80" strokeWidth="1.5" strokeLinecap="round"/>
-      <line x1="12" y1="32" x2="2"  y2="31" stroke="#4ade80" strokeWidth="1.5" strokeLinecap="round"/>
-      <line x1="13" y1="40" x2="4"  y2="43" stroke="#4ade80" strokeWidth="1.5" strokeLinecap="round"/>
-      {/* Legs — right */}
-      <line x1="38" y1="24" x2="48" y2="20" stroke="#4ade80" strokeWidth="1.5" strokeLinecap="round"/>
-      <line x1="40" y1="32" x2="50" y2="31" stroke="#4ade80" strokeWidth="1.5" strokeLinecap="round"/>
-      <line x1="39" y1="40" x2="48" y2="43" stroke="#4ade80" strokeWidth="1.5" strokeLinecap="round"/>
-      <defs>
-        <linearGradient id="bug-head" x1="26" y1="6" x2="26" y2="20" gradientUnits="userSpaceOnUse">
-          <stop offset="0%" stopColor="#22c55e"/>
-          <stop offset="100%" stopColor="#15803d"/>
-        </linearGradient>
-        <linearGradient id="bug-left" x1="14" y1="18" x2="26" y2="47" gradientUnits="userSpaceOnUse">
-          <stop offset="0%" stopColor="#16a34a"/>
-          <stop offset="100%" stopColor="#052e16"/>
-        </linearGradient>
-        <linearGradient id="bug-right" x1="38" y1="18" x2="26" y2="47" gradientUnits="userSpaceOnUse">
-          <stop offset="0%" stopColor="#16a34a"/>
-          <stop offset="100%" stopColor="#052e16"/>
-        </linearGradient>
-      </defs>
-    </svg>
-  );
-}
 
 export default function Auth() {
   const [email, setEmail]               = useState('admin@sonaro.local');
@@ -137,7 +83,7 @@ export default function Auth() {
 
           {/* Brand — centred */}
           <div className="flex flex-col items-center mb-8">
-            <BugLogo />
+            <img src={bugLogoSrc} alt="Sonaro Gate" className="w-14 h-14 select-none" draggable={false} />
             <div className="mt-4 flex items-baseline gap-2 justify-center">
               <span className="text-2xl font-extrabold tracking-[0.1em] text-white leading-none">
                 SONARO
@@ -163,22 +109,18 @@ export default function Auth() {
             {/* Top accent line */}
             <div className="h-px bg-gradient-to-r from-transparent via-emerald-500/50 to-transparent" />
 
-            {/* Card header */}
-            <div
-              className="flex items-center gap-2.5 px-7 py-3.5 border-b"
-              style={{ borderColor: 'rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.02)' }}
-            >
-              <span className="relative flex h-1.5 w-1.5">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-70" />
-                <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500" />
-              </span>
-              <span className="text-[11px] font-semibold tracking-[0.15em] text-emerald-400 uppercase">
-                System Authentication
-              </span>
+            {/* Card heading */}
+            <div className="px-7 pt-6 pb-1">
+              <h1 className="text-[18px] font-semibold text-white tracking-tight leading-none">
+                Sign in
+              </h1>
+              <p className="text-[12px] text-gray-500 mt-1.5">
+                System Authentication — Sonaro Gate Management Console
+              </p>
             </div>
 
             {/* Form */}
-            <form onSubmit={handleSubmit} className="px-7 py-6 space-y-5">
+            <form onSubmit={handleSubmit} className="px-7 pt-5 pb-6 space-y-5">
               {/* Email */}
               <div>
                 <label className="block text-[10px] tracking-[0.15em] uppercase text-gray-500 mb-2 font-medium">
@@ -249,15 +191,19 @@ export default function Auth() {
 
               {/* Default credentials */}
               <div
-                className="rounded-lg px-4 py-3"
-                style={{ background: 'rgba(74,222,128,0.04)', border: '1px solid rgba(74,222,128,0.12)' }}
+                className="flex items-start gap-2.5 rounded-lg px-4 py-3"
+                style={{ background: 'rgba(74,222,128,0.05)', border: '1px solid rgba(74,222,128,0.14)' }}
               >
-                <p className="text-[9px] tracking-[0.18em] uppercase text-gray-600 mb-2 font-semibold">
-                  Default Credentials
-                </p>
-                <div className="font-mono text-[11px] space-y-0.5">
-                  <p><span className="text-gray-600 mr-2">login</span><span className="text-emerald-400">admin@sonaro.local</span></p>
-                  <p><span className="text-gray-600 mr-2">pass </span><span className="text-emerald-400">Admin123!</span></p>
+                <svg className="w-3.5 h-3.5 text-emerald-500 mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <div>
+                  <p className="text-[10px] text-gray-500 font-medium mb-1">Default credentials for first-time setup</p>
+                  <p className="text-[11px] font-mono">
+                    <span className="text-gray-400">admin@sonaro.local</span>
+                    <span className="text-gray-600 mx-1.5">/</span>
+                    <span className="text-emerald-400 font-semibold">Admin123!</span>
+                  </p>
                 </div>
               </div>
 
