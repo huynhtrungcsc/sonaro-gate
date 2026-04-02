@@ -27,3 +27,17 @@ dist-ssr
 .env
 .env.local
 .env.production
+
+# Replit platform files — NOT for version control
+.replit
+replit.md
+.agents/
+.canvas/
+.local/
+.upm/
+.cache/
+.config/
+.npm/
+
+# Session reference assets (uploaded during development)
+attached_assets/
