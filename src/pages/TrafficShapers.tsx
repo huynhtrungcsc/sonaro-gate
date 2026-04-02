@@ -244,16 +244,18 @@ const TrafficShapers = () => {
   const openEditModal = () => {
     if (selectedIds.length !== 1) return;
     const item = (shapers as any[]).find((s: any) => s.id === selectedIds[0]);
-    if (item) {
-      setEditingItem(item);
-      setFormName(item.name);
-      setFormType(item.type);
-      setFormGuaranteed(item.guaranteed_bandwidth ?? item.guaranteedBandwidth ?? 0);
-      setFormMaximum(item.maximum_bandwidth ?? item.maximumBandwidth ?? 0);
-      setFormBurst(item.burst_bandwidth ?? item.burstBandwidth ?? 0);
-      setFormPriority(item.priority);
-      setModalOpen(true);
-    }
+    if (item) openEditModalForItem(item);
+  };
+
+  const openEditModalForItem = (item: any) => {
+    setEditingItem(item);
+    setFormName(item.name);
+    setFormType(item.type);
+    setFormGuaranteed(item.guaranteed_bandwidth ?? item.guaranteedBandwidth ?? 0);
+    setFormMaximum(item.maximum_bandwidth ?? item.maximumBandwidth ?? 0);
+    setFormBurst(item.burst_bandwidth ?? item.burstBandwidth ?? 0);
+    setFormPriority(item.priority);
+    setModalOpen(true);
   };
 
   const handleSave = () => {
@@ -458,7 +460,7 @@ const TrafficShapers = () => {
                       onToggle={toggleShaper}
                       onDoubleClick={() => {
                         setSelectedIds([shaper.id]);
-                        setTimeout(openEditModal, 0);
+                        openEditModalForItem(shaper);
                       }}
                       formatBandwidth={formatBandwidth}
                     />

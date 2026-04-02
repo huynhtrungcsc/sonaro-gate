@@ -161,7 +161,18 @@ const TrafficShapingPolicy = () => {
             <thead>
               <tr>
                 <th className="w-8">
-                  <input type="checkbox" className="forti-checkbox" />
+                  <input
+                    type="checkbox"
+                    className="forti-checkbox"
+                    checked={filteredPolicies.length > 0 && selectedIds.length === filteredPolicies.length}
+                    onChange={() => {
+                      if (selectedIds.length === filteredPolicies.length) {
+                        setSelectedIds([]);
+                      } else {
+                        setSelectedIds(filteredPolicies.map((p: any) => p.id));
+                      }
+                    }}
+                  />
                 </th>
                 <th className="w-16">Status</th>
                 <th className="w-10">ID</th>
