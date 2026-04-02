@@ -20,7 +20,7 @@
 set -eu
 
 # ── Colour helpers ─────────────────────────────────────────────────────────────
-# Use $'...' C-style strings so \033 is interpreted as ESC, not literal backslash
+# $'...' C-style strings so \033 is interpreted as ESC, not literal backslash
 RED=$'\033[0;31m'
 GREEN=$'\033[0;32m'
 YELLOW=$'\033[1;33m'
@@ -35,7 +35,6 @@ warn()  { echo -e "${YELLOW}[ WARN]${RESET}  $*"; }
 step()  { echo -e "\n${BOLD}${CYAN}── $* ${RESET}"; }
 die()   { echo -e "${RED}[ERROR]${RESET}  $*" >&2; exit 1; }
 hdr()   { echo -e "\n${BOLD}${CYAN}$*${RESET}"; }
-row()   { echo -e "  ${BOLD}$(printf '%-28s' "$1")${RESET} $2"; }
 sep()   { echo -e "${DIM}  ──────────────────────────────────────────────────────${RESET}"; }
 
 # ── Root guard ────────────────────────────────────────────────────────────────
@@ -63,14 +62,17 @@ DB_PASS="${POSTGRES_PASSWORD:-$(openssl rand -hex 20)}"
 JWT_SECRET="${JWT_SECRET:-$(openssl rand -hex 32)}"
 COMPOSE_FILE="${INSTALL_DIR}/deploy/docker-compose.prod.yml"
 
-# ─────────────────────────────────────────────────────────────────────────────
-# HELPER — detect whether UFW is truly enabled (not just installed)
-# Returns 0 = active, 1 = inactive/not installed
-# ─────────────────────────────────────────────────────────────────────────────
+# ── Docker Compose helper ──────────────────────────────────────────────────────
+# Always use --project-directory so Docker Compose resolves .env from INSTALL_DIR
+# (not from CWD, and not from the compose file's directory).
+# This is the ONLY correct way to run docker compose for this project.
+# Every "docker compose" call in this script MUST go through this variable.
+DC="docker compose --project-directory ${INSTALL_DIR} -f ${COMPOSE_FILE}"
+
+# ── UFW helper ────────────────────────────────────────────────────────────────
 ufw_is_active() {
     command -v ufw &>/dev/null || return 1
-    # "ufw status" prints "Status: active" or "Status: inactive"
-    # We must match the FULL word "active" not just a substring (inactive contains active)
+    # Must match the FULL line "Status: active" — NOT "inactive" (which contains "active")
     ufw status 2>/dev/null | head -1 | grep -qx "Status: active"
 }
 
@@ -80,7 +82,6 @@ ufw_is_active() {
 system_check() {
     step "Phase 1 — System check"
 
-    # OS
     if [[ "${ID:-}" == "ubuntu" && "${VERSION_ID:-}" == "24.04" ]]; then
         ok "OS: ${PRETTY_NAME} ✓ (fully supported)"
     elif [[ "${ID:-}" == "ubuntu" ]]; then
@@ -94,7 +95,6 @@ system_check() {
     cpu=$(nproc 2>/dev/null || echo "?")
     ram=$(free -h 2>/dev/null | awk '/^Mem:/{print $2}' || echo "?")
     disk=$(df -h / 2>/dev/null | awk 'NR==2{print $4}' || echo "?")
-
     echo ""
     echo -e "  ${BOLD}Hardware${RESET}"
     echo "    CPU:         ${cpu} core(s)"
@@ -102,7 +102,7 @@ system_check() {
     echo "    Disk free:   ${disk}  (on /)"
     [[ "$cpu" -ge 2 ]] 2>/dev/null || warn "Minimum 2 CPU cores recommended (found: ${cpu})"
 
-    # Network interfaces
+    # NICs
     echo ""
     echo -e "  ${BOLD}Network interfaces${RESET}"
     local nic_count=0
@@ -118,7 +118,7 @@ system_check() {
     done < <(ip -o link show 2>/dev/null | grep -v '^[0-9]*: lo')
     [[ "$nic_count" -lt 2 ]] && warn "Firewall requires at least 2 NICs (WAN + LAN). Found: ${nic_count}"
 
-    # UFW status — precise check
+    # UFW — precise check
     echo ""
     echo -e "  ${BOLD}Host firewall (UFW)${RESET}"
     if command -v ufw &>/dev/null; then
@@ -128,13 +128,13 @@ system_check() {
         if ufw_is_active; then
             warn "UFW is active — installer will open port ${PORT}/tcp automatically"
         else
-            echo -e "    ${DIM}(UFW inactive — no firewall rules to update)${RESET}"
+            echo -e "    ${DIM}(UFW inactive — no rules to update)${RESET}"
         fi
     else
         echo -e "    ${DIM}UFW not installed${RESET}"
     fi
 
-    # Port check
+    # Port
     echo ""
     echo -e "  ${BOLD}Port ${PORT} availability${RESET}"
     if ss -tlnp 2>/dev/null | grep -q ":${PORT} "; then
@@ -157,7 +157,7 @@ system_check() {
         fi
     done
 
-    # Pre-installed software
+    # Software
     echo ""
     echo -e "  ${BOLD}Installed software${RESET}"
     for tool in docker git curl openssl node psql suricata wireguard; do
@@ -169,21 +169,19 @@ system_check() {
             echo -e "    ${DIM}✗  $(printf '%-16s' "$tool")  not installed${RESET}"
         fi
     done
-
     echo ""
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
-# OPEN HOST FIREWALL PORTS  (safe — uses || true everywhere)
+# OPEN HOST FIREWALL PORTS
 # ─────────────────────────────────────────────────────────────────────────────
 open_firewall_ports() {
     local _port="$1"
     local opened=0
 
-    # ── UFW ───────────────────────────────────────────────────────────────────
+    # UFW
     if ufw_is_active; then
         info "UFW is ACTIVE — opening port ${_port}/tcp..."
-        # Remove `comment` keyword: not all UFW versions support it
         if ufw allow "${_port}/tcp" >/dev/null 2>&1; then
             ok "UFW: port ${_port}/tcp → ALLOW ✓"
             opened=1
@@ -192,11 +190,9 @@ open_firewall_ports() {
         fi
     fi
 
-    # ── iptables INPUT chain ───────────────────────────────────────────────────
-    # Only add a rule if the INPUT default policy is DROP or REJECT
+    # iptables — only add if INPUT policy is DROP/REJECT
     if command -v iptables &>/dev/null; then
         local _policy
-        # Use awk to avoid head-induced SIGPIPE under set -e
         _policy=$(iptables -L INPUT -n 2>/dev/null \
             | awk '/^Chain INPUT/{match($0,/policy ([A-Z]+)/,a); print a[1]; exit}') \
             || _policy="UNKNOWN"
@@ -204,24 +200,18 @@ open_firewall_ports() {
 
         if [[ "$_policy" == "DROP" || "$_policy" == "REJECT" ]]; then
             info "iptables INPUT policy is ${_policy} — adding ACCEPT rule for port ${_port}/tcp"
-            # Check if rule already exists (-C returns 0 if exists)
             if ! iptables -C INPUT -p tcp --dport "${_port}" -j ACCEPT 2>/dev/null; then
                 iptables -I INPUT -p tcp --dport "${_port}" -j ACCEPT 2>/dev/null \
                     && ok "iptables: ACCEPT tcp/${_port} added to INPUT chain" \
-                    || warn "iptables insert failed — rule may already exist"
+                    || warn "iptables insert failed — try: sudo iptables -I INPUT -p tcp --dport ${_port} -j ACCEPT"
             else
                 ok "iptables: ACCEPT rule for tcp/${_port} already present"
             fi
             opened=1
-        else
-            # Policy is ACCEPT (default Ubuntu) — no iptables rule needed
-            true
         fi
     fi
 
-    if [[ "$opened" -eq 0 ]]; then
-        ok "Host firewall: port ${_port} accessible (no rule changes needed)"
-    fi
+    [[ "$opened" -eq 0 ]] && ok "Host firewall: port ${_port} accessible (no rule changes needed)"
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -260,7 +250,7 @@ detect_and_clean() {
         _CONFIRM="${_CONFIRM:-Y}"
         [[ "${_CONFIRM,,}" =~ ^(y|yes)$ ]] || die "Aborted — no changes made"
     else
-        info "Non-interactive mode: clean wipe in 5 seconds... (Ctrl+C to cancel)"
+        info "Non-interactive: clean wipe in 5 seconds... (Ctrl+C to cancel)"
         sleep 5
     fi
 
@@ -270,20 +260,31 @@ detect_and_clean() {
 _do_cleanup() {
     step "Cleaning up previous installation"
 
+    # Use docker compose down -v to correctly remove compose-managed volumes
+    # (volume names are prefixed with the project name, e.g. deploy_pgdata)
     if command -v docker &>/dev/null && [[ -f "$COMPOSE_FILE" ]]; then
-        info "Stopping containers..."
-        docker compose -f "$COMPOSE_FILE" down -v --remove-orphans 2>/dev/null || true
+        info "Stopping containers and removing volumes..."
+        $DC down -v --remove-orphans 2>/dev/null || true
     fi
+
+    # Belt-and-suspenders: remove containers by name if compose down didn't catch them
     docker rm -f sonaro-gate sonaro-db 2>/dev/null || true
-    docker volume rm sonaro_pgdata pgdata 2>/dev/null || true
+
+    # Remove the image to force a full rebuild
     docker rmi sonaro-gate:latest 2>/dev/null || true
 
+    # Systemd (native mode cleanup)
     systemctl stop sonaro-gate 2>/dev/null || true
     systemctl disable sonaro-gate 2>/dev/null || true
     rm -f /etc/systemd/system/sonaro-gate.service
     systemctl daemon-reload 2>/dev/null || true
     rm -f /etc/sysctl.d/99-sonaro.conf
-    [[ -d "${INSTALL_DIR}" ]] && { info "Removing ${INSTALL_DIR}..."; rm -rf "${INSTALL_DIR}"; }
+
+    # Remove install directory
+    if [[ -d "${INSTALL_DIR}" ]]; then
+        info "Removing ${INSTALL_DIR}..."
+        rm -rf "${INSTALL_DIR}"
+    fi
 
     ok "Previous installation removed — fresh install ready"
     echo ""
@@ -301,11 +302,9 @@ if [[ -z "$METHOD" ]]; then
         echo -e "  ${BOLD}[1] Docker${RESET}  ${GREEN}(recommended)${RESET}"
         echo -e "      • Installs Docker Engine + starts containers"
         echo -e "      • No need to install Node.js or PostgreSQL manually"
-        echo -e "      • Easy to update: git pull && docker compose up -d --build"
         echo ""
         echo -e "  ${BOLD}[2] Native${RESET}"
         echo -e "      • Installs Node.js 20 + PostgreSQL + Suricata directly on Ubuntu"
-        echo -e "      • Full direct kernel access (iptables, netplan, sysctl)"
         echo -e "      • Runs as a systemd service: sonaro-gate.service"
         echo ""
         read -rp "  Choice [1]: " _METHOD_INPUT
@@ -327,12 +326,11 @@ info "Install dir    : ${INSTALL_DIR}"
 info "Port           : ${PORT}"
 echo ""
 
-# Run phases 1 and 2
 system_check
 detect_and_clean
 
 # ─────────────────────────────────────────────────────────────────────────────
-# HELPER — post-install diagnostic check
+# HELPER — Post-install diagnostic check
 # ─────────────────────────────────────────────────────────────────────────────
 run_post_diagnostics() {
     local _mode="$1"
@@ -342,7 +340,11 @@ run_post_diagnostics() {
 
     if [[ "$_mode" == "docker" ]]; then
         echo -e "  ${BOLD}Container status:${RESET}"
-        docker compose -f "$COMPOSE_FILE" ps 2>/dev/null || true
+        # $DC carries --project-directory so .env is auto-loaded
+        $DC ps 2>/dev/null || {
+            warn "docker compose ps failed — trying 'docker ps' directly..."
+            docker ps --filter "name=sonaro" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" 2>/dev/null || true
+        }
     else
         echo -e "  ${BOLD}Service status:${RESET}"
         systemctl status sonaro-gate --no-pager -l 2>/dev/null | head -12 || true
@@ -355,38 +357,44 @@ run_post_diagnostics() {
     else
         echo -e "  ${RED}✗  Port ${_port} is NOT listening${RESET}"
         echo ""
-        warn "The application did not bind to port ${_port}."
+        warn "The application did not bind to port ${_port}. Container logs:"
+
         if [[ "$_mode" == "docker" ]]; then
-            warn "Last 50 lines of container logs:"
+            # Use "docker logs <name>" directly — does NOT need env interpolation
             echo ""
-            echo -e "${YELLOW}═══════════════ sonaro-gate (last 50 lines) ════════════════${RESET}"
-            docker compose -f "$COMPOSE_FILE" logs --tail=50 sonaro-gate 2>/dev/null || true
+            echo -e "${YELLOW}═══════════════ sonaro-gate (last 60 lines) ════════════════${RESET}"
+            docker logs sonaro-gate --tail=60 2>&1 || \
+                echo "  (container 'sonaro-gate' not found — check: docker ps -a)"
             echo -e "${YELLOW}═══════════════════════════════════════════════════════════${RESET}"
             echo ""
-            echo -e "${YELLOW}════════════════ db (last 20 lines) ═══════════════════════${RESET}"
-            docker compose -f "$COMPOSE_FILE" logs --tail=20 db 2>/dev/null || true
+            echo -e "${YELLOW}════════════════ sonaro-db (last 20 lines) ════════════════${RESET}"
+            docker logs sonaro-db --tail=20 2>&1 || \
+                echo "  (container 'sonaro-db' not found)"
             echo -e "${YELLOW}═══════════════════════════════════════════════════════════${RESET}"
         else
-            journalctl -u sonaro-gate -n 40 --no-pager 2>/dev/null || true
+            journalctl -u sonaro-gate -n 50 --no-pager 2>/dev/null || true
         fi
     fi
 
     echo ""
-    echo -e "  ${BOLD}UFW rules (port ${_port}):${RESET}"
+    echo -e "  ${BOLD}UFW rules:${RESET}"
     if command -v ufw &>/dev/null && ufw_is_active; then
-        ufw status numbered 2>/dev/null | grep -E "${_port}" || echo "    (no rule found for ${_port})"
+        ufw status numbered 2>/dev/null | grep -E "${_port}" || echo "    (no rule found for port ${_port})"
     else
-        echo "    UFW is inactive"
+        echo "    UFW is inactive — no host firewall blocking the port"
     fi
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
-# HELPER — print the detailed post-install guide
+# HELPER — Print detailed post-install guide
 # ─────────────────────────────────────────────────────────────────────────────
 print_post_install_guide() {
     local _mode="$1"
     local _port="$2"
     local _lan_ip="$3"
+
+    # The canonical docker compose command prefix to show users
+    local SHOW_DC="docker compose --project-directory ${INSTALL_DIR} -f ${COMPOSE_FILE}"
 
     echo ""
     echo -e "${BOLD}${GREEN}"
@@ -399,7 +407,7 @@ print_post_install_guide() {
     echo "  ╚════════════════════════════════════════════════════════════╝"
     echo -e "${RESET}"
 
-    # ── ① Access ──────────────────────────────────────────────────────────────
+    # ① Access
     hdr "  ① Access the web interface"
     sep
     echo -e "  Open a browser on any device on the same network:\n"
@@ -410,7 +418,7 @@ print_post_install_guide() {
     echo -e "  ${YELLOW}  ⚠  Change the password immediately after first login!${RESET}"
     echo -e "  ${DIM}     System → Administrators → Click admin → Change Password${RESET}"
 
-    # ── ② Network interfaces ──────────────────────────────────────────────────
+    # ② Network interfaces
     echo ""
     hdr "  ② Configure network interfaces  (required for traffic routing)"
     sep
@@ -427,19 +435,17 @@ print_post_install_guide() {
     done
     echo ""
     echo -e "  Configure in the web UI: ${BOLD}Network → Interfaces${RESET}"
-    echo -e "  ${DIM}  Full guide: https://github.com/huynhtrungcsc/sonaro-gate/blob/main/docs/CLI-NETWORK-SETUP.md${RESET}"
 
-    # ── ③ Verify ──────────────────────────────────────────────────────────────
+    # ③ Verify
     echo ""
     hdr "  ③ Verify the application is running"
     sep
     if [[ "$_mode" == "docker" ]]; then
-        local CF="${INSTALL_DIR}/deploy/docker-compose.prod.yml"
         echo -e "  ${DIM}Container status:${RESET}"
-        echo -e "    ${CYAN}docker compose -f ${CF} ps${RESET}"
+        echo -e "    ${CYAN}${SHOW_DC} ps${RESET}"
         echo ""
         echo -e "  ${DIM}Live application logs:${RESET}"
-        echo -e "    ${CYAN}docker compose -f ${CF} logs -f sonaro-gate${RESET}"
+        echo -e "    ${CYAN}docker logs sonaro-gate -f${RESET}"
         echo ""
         echo -e "  ${DIM}API health check:${RESET}"
         echo -e "    ${CYAN}curl http://127.0.0.1:${_port}/api/health${RESET}"
@@ -454,7 +460,7 @@ print_post_install_guide() {
         echo -e "    ${CYAN}curl http://127.0.0.1:${_port}/api/health${RESET}"
     fi
 
-    # ── ④ Security checklist ──────────────────────────────────────────────────
+    # ④ Security checklist
     echo ""
     hdr "  ④ Security checklist  (do these right after first login)"
     sep
@@ -464,20 +470,21 @@ print_post_install_guide() {
     echo -e "  ${DIM}☐${RESET}  Assign WAN and LAN interfaces  ${DIM}→ Network → Interfaces${RESET}"
     echo -e "  ${DIM}☐${RESET}  Enable IDS/IPS                 ${DIM}→ Security → IDS/IPS${RESET}"
 
-    # ── ⑤ Management commands ─────────────────────────────────────────────────
+    # ⑤ Management commands
     echo ""
     hdr "  ⑤ Management commands"
     sep
     if [[ "$_mode" == "docker" ]]; then
-        local CF="${INSTALL_DIR}/deploy/docker-compose.prod.yml"
-        echo -e "  ${DIM}Start:${RESET}       ${CYAN}docker compose -f ${CF} up -d${RESET}"
-        echo -e "  ${DIM}Stop:${RESET}        ${CYAN}docker compose -f ${CF} down${RESET}"
-        echo -e "  ${DIM}Restart:${RESET}     ${CYAN}docker compose -f ${CF} restart${RESET}"
-        echo -e "  ${DIM}Logs:${RESET}        ${CYAN}docker compose -f ${CF} logs -f${RESET}"
-        echo -e "  ${DIM}Shell access:${RESET} ${CYAN}docker exec -it sonaro-gate bash${RESET}"
+        echo -e "  ${DIM}Status:${RESET}      ${CYAN}${SHOW_DC} ps${RESET}"
+        echo -e "  ${DIM}Start:${RESET}       ${CYAN}${SHOW_DC} up -d${RESET}"
+        echo -e "  ${DIM}Stop:${RESET}        ${CYAN}${SHOW_DC} down${RESET}"
+        echo -e "  ${DIM}Restart:${RESET}     ${CYAN}${SHOW_DC} restart${RESET}"
+        echo -e "  ${DIM}App logs:${RESET}    ${CYAN}docker logs sonaro-gate -f${RESET}"
+        echo -e "  ${DIM}DB logs:${RESET}     ${CYAN}docker logs sonaro-db -f${RESET}"
+        echo -e "  ${DIM}Shell:${RESET}       ${CYAN}docker exec -it sonaro-gate bash${RESET}"
         echo ""
         echo -e "  ${DIM}Update to latest:${RESET}"
-        echo -e "    ${CYAN}git -C ${INSTALL_DIR} pull && docker compose -f ${CF} up -d --build${RESET}"
+        echo -e "    ${CYAN}git -C ${INSTALL_DIR} pull && ${SHOW_DC} up -d --build${RESET}"
     else
         echo -e "  ${DIM}Status:${RESET}  ${CYAN}systemctl status sonaro-gate${RESET}"
         echo -e "  ${DIM}Start:${RESET}   ${CYAN}systemctl start sonaro-gate${RESET}"
@@ -486,27 +493,27 @@ print_post_install_guide() {
         echo -e "  ${DIM}Logs:${RESET}    ${CYAN}journalctl -u sonaro-gate -f${RESET}"
     fi
 
-    # ── ⑥ File locations ──────────────────────────────────────────────────────
+    # ⑥ File locations
     echo ""
     hdr "  ⑥ Important file locations"
     sep
     echo -e "  ${DIM}Install dir:${RESET}   ${INSTALL_DIR}"
     echo -e "  ${DIM}Config (.env):${RESET} ${INSTALL_DIR}/.env   ${YELLOW}← keep private! contains passwords${RESET}"
     if [[ "$_mode" == "docker" ]]; then
-        echo -e "  ${DIM}DB data:${RESET}       Docker volume  ${CYAN}pgdata${RESET}  (docker volume inspect pgdata)"
-        echo -e "  ${DIM}Compose file:${RESET}  ${INSTALL_DIR}/deploy/docker-compose.prod.yml"
+        echo -e "  ${DIM}DB data:${RESET}       Docker volume  ${CYAN}(${INSTALL_DIR##*/}_pgdata or deploy_pgdata)${RESET}"
+        echo -e "  ${DIM}Compose file:${RESET}  ${COMPOSE_FILE}"
     else
         echo -e "  ${DIM}DB data:${RESET}       /var/lib/postgresql/"
         echo -e "  ${DIM}Service:${RESET}       /etc/systemd/system/sonaro-gate.service"
     fi
 
-    # ── ⑦ Troubleshooting ─────────────────────────────────────────────────────
+    # ⑦ Troubleshooting
     echo ""
     hdr "  ⑦ Cannot access the web UI? — try these steps in order"
     sep
     echo -e "  ${BOLD}  1. Is the app running?${RESET}"
     if [[ "$_mode" == "docker" ]]; then
-        echo -e "     ${CYAN}docker compose -f ${INSTALL_DIR}/deploy/docker-compose.prod.yml ps${RESET}"
+        echo -e "     ${CYAN}docker ps --filter name=sonaro${RESET}"
     else
         echo -e "     ${CYAN}systemctl status sonaro-gate${RESET}"
     fi
@@ -516,20 +523,17 @@ print_post_install_guide() {
     echo -e "     ${DIM}     → Should show LISTEN on 0.0.0.0:${_port}${RESET}"
     echo ""
     echo -e "  ${BOLD}  3. Is UFW blocking the port?${RESET}"
-    echo -e "     ${CYAN}ufw status numbered${RESET}"
-    echo -e "     ${DIM}     → If ${_port} is not listed, run:${RESET}"
-    echo -e "     ${CYAN}ufw allow ${_port}/tcp && ufw reload${RESET}"
+    echo -e "     ${CYAN}sudo ufw status numbered${RESET}"
+    echo -e "     ${CYAN}sudo ufw allow ${_port}/tcp${RESET}    ${DIM}← run this if ${_port} is not listed${RESET}"
     echo ""
-    echo -e "  ${BOLD}  4. Test access locally on the server${RESET}"
-    echo -e "     ${CYAN}curl -v http://127.0.0.1:${_port}/api/health${RESET}"
+    echo -e "  ${BOLD}  4. View app logs${RESET}"
+    if [[ "$_mode" == "docker" ]]; then
+        echo -e "     ${CYAN}docker logs sonaro-gate --tail=50${RESET}"
+    fi
+    echo ""
+    echo -e "  ${BOLD}  5. Test locally on the server${RESET}"
+    echo -e "     ${CYAN}curl http://127.0.0.1:${_port}/api/health${RESET}"
     echo -e "     ${DIM}     → Should return: {\"status\":\"ok\"}${RESET}"
-    echo ""
-    echo -e "  ${BOLD}  5. Test from a remote machine (ping the server first)${RESET}"
-    echo -e "     ${CYAN}ping ${_lan_ip}${RESET}"
-    echo -e "     ${CYAN}curl http://${_lan_ip}:${_port}/api/health${RESET}"
-    echo ""
-    echo -e "  ${DIM}  Full troubleshooting guide:${RESET}"
-    echo -e "  ${DIM}  https://github.com/huynhtrungcsc/sonaro-gate/blob/main/docs/DEPLOY.md${RESET}"
     echo ""
 }
 
@@ -606,13 +610,13 @@ ENV
     # ── Step 5: Build and start ────────────────────────────────────────────────
     step "Step 5/6 — Build Docker image and start containers"
 
-    cd "$INSTALL_DIR"
     info "Building Docker image (compiles TypeScript + React frontend)..."
     info "First run takes 3–5 minutes — please wait..."
-    docker compose -f deploy/docker-compose.prod.yml --env-file .env build
+    # $DC uses --project-directory so it auto-loads INSTALL_DIR/.env
+    $DC build
 
     info "Starting containers (PostgreSQL + Sonaro Gate)..."
-    docker compose -f deploy/docker-compose.prod.yml --env-file .env up -d
+    $DC up -d
     ok "Containers started"
 
     # ── Step 6: Health check ───────────────────────────────────────────────────
@@ -632,15 +636,15 @@ ENV
     echo ""
 
     if [[ "$HEALTH_OK" -eq 0 ]]; then
-        warn "Health check timed out after 3 minutes."
-        warn "Showing container logs to help diagnose the issue:"
+        warn "Health check timed out — showing container logs to diagnose:"
         echo ""
-        echo -e "${YELLOW}═══════════════ sonaro-gate (last 50 lines) ════════════════${RESET}"
-        docker compose -f deploy/docker-compose.prod.yml logs --tail=50 sonaro-gate 2>/dev/null || true
+        echo -e "${YELLOW}═══════════════ sonaro-gate (last 60 lines) ════════════════${RESET}"
+        # Use "docker logs" directly — no env interpolation needed, always works
+        docker logs sonaro-gate --tail=60 2>&1 || echo "  (container not found — it may have crashed)"
         echo -e "${YELLOW}═══════════════════════════════════════════════════════════${RESET}"
         echo ""
-        echo -e "${YELLOW}════════════════ db (last 20 lines) ═══════════════════════${RESET}"
-        docker compose -f deploy/docker-compose.prod.yml logs --tail=20 db 2>/dev/null || true
+        echo -e "${YELLOW}════════════════ sonaro-db (last 20 lines) ════════════════${RESET}"
+        docker logs sonaro-db --tail=20 2>&1 || echo "  (container not found)"
         echo -e "${YELLOW}═══════════════════════════════════════════════════════════${RESET}"
     fi
 
