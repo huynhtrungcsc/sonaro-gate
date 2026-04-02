@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Shell } from '@/components/layout/Shell';
 import { cn } from '@/lib/utils';
 import { 
@@ -48,7 +48,10 @@ import {
 import { toast } from 'sonner';
 import { useConfigBackups } from '@/hooks/useConfigBackups';
 import { formatFileSize as formatSize } from '@/lib/formatters';
-
+import { useSystemSettings } from '@/hooks/useDbData';
+import { systemSettingsApi } from '@/lib/api';
+import { apiRequest } from '@/lib/queryClient';
+import { useQueryClient } from '@tanstack/react-query';
 
 interface ExportConfig {
   system: boolean;
@@ -63,11 +66,9 @@ interface ExportConfig {
   dns: boolean;
   dhcp: boolean;
   users: boolean;
-  ldap: boolean;
   certificates: boolean;
   securityProfiles: boolean;
   routing: boolean;
-  logging: boolean;
 }
 
 interface ImportPreview {
@@ -81,25 +82,22 @@ interface ImportPreview {
 }
 
 const configSections = [
-  { key: 'system', label: 'System Settings', icon: Settings, color: 'text-slate-600' },
-  { key: 'interfaces', label: 'Network Interfaces', icon: Network, color: 'text-blue-600' },
-  { key: 'firewallRules', label: 'Firewall Rules', icon: Shield, color: 'text-red-600' },
-  { key: 'natRules', label: 'NAT Rules', icon: ArrowRightLeft, color: 'text-green-600' },
-  { key: 'aliases', label: 'Aliases', icon: Database, color: 'text-amber-600' },
-  { key: 'services', label: 'Services', icon: Server, color: 'text-purple-600' },
-  { key: 'schedules', label: 'Schedules', icon: Clock, color: 'text-cyan-600' },
-  { key: 'ipPools', label: 'IP Pools', icon: HardDrive, color: 'text-orange-600' },
-  { key: 'vpn', label: 'VPN Configuration', icon: Lock, color: 'text-green-700' },
-  { key: 'dns', label: 'DNS Server', icon: Globe, color: 'text-indigo-600' },
-  { key: 'dhcp', label: 'DHCP Server', icon: Wifi, color: 'text-teal-600' },
-  { key: 'users', label: 'User Accounts', icon: Users, color: 'text-pink-600' },
-  { key: 'ldap', label: 'LDAP Servers', icon: Users, color: 'text-violet-600' },
-  { key: 'certificates', label: 'Certificates', icon: Lock, color: 'text-yellow-600' },
-  { key: 'securityProfiles', label: 'Security Profiles', icon: Shield, color: 'text-rose-600' },
-  { key: 'routing', label: 'Routing', icon: ArrowRightLeft, color: 'text-lime-600' },
-  { key: 'logging', label: 'Logging', icon: History, color: 'text-gray-600' },
+  { key: 'system', apiKey: 'system', label: 'System Settings', icon: Settings, color: 'text-slate-600' },
+  { key: 'interfaces', apiKey: 'network_interfaces', label: 'Network Interfaces', icon: Network, color: 'text-blue-600' },
+  { key: 'firewallRules', apiKey: 'firewall_rules', label: 'Firewall Rules', icon: Shield, color: 'text-red-600' },
+  { key: 'natRules', apiKey: 'nat_rules', label: 'NAT Rules', icon: ArrowRightLeft, color: 'text-green-600' },
+  { key: 'aliases', apiKey: 'aliases', label: 'Aliases', icon: Database, color: 'text-amber-600' },
+  { key: 'services', apiKey: 'services', label: 'Services', icon: Server, color: 'text-purple-600' },
+  { key: 'schedules', apiKey: 'schedules', label: 'Schedules', icon: Clock, color: 'text-cyan-600' },
+  { key: 'ipPools', apiKey: 'ip_pools', label: 'IP Pools', icon: HardDrive, color: 'text-orange-600' },
+  { key: 'vpn', apiKey: 'vpn_tunnels', label: 'VPN Configuration', icon: Lock, color: 'text-green-700' },
+  { key: 'dns', apiKey: 'dns_local_records', label: 'DNS Server', icon: Globe, color: 'text-indigo-600' },
+  { key: 'dhcp', apiKey: 'dhcp_servers', label: 'DHCP Server', icon: Wifi, color: 'text-teal-600' },
+  { key: 'users', apiKey: 'users', label: 'User Accounts', icon: Users, color: 'text-pink-600' },
+  { key: 'certificates', apiKey: 'certificates', label: 'Certificates', icon: Lock, color: 'text-yellow-600' },
+  { key: 'securityProfiles', apiKey: 'ssl_inspection_profiles', label: 'Security Profiles', icon: Shield, color: 'text-rose-600' },
+  { key: 'routing', apiKey: 'static_routes', label: 'Routing', icon: ArrowRightLeft, color: 'text-lime-600' },
 ];
-
 
 interface ScheduledBackup {
   id: string;
@@ -113,13 +111,23 @@ interface ScheduledBackup {
   retention: number;
 }
 
-const initialScheduledBackups: ScheduledBackup[] = [
-  { id: '1', name: 'Daily Backup', frequency: 'daily', time: '02:00', enabled: true, lastRun: '2024-01-15 02:00', nextRun: '2024-01-16 02:00', retention: 7 },
-  { id: '2', name: 'Weekly Full Backup', frequency: 'weekly', time: '03:00', day: 0, enabled: true, lastRun: '2024-01-14 03:00', nextRun: '2024-01-21 03:00', retention: 4 },
-];
+const getNextRun = (frequency: string, time: string, day?: number): string => {
+  const now = new Date();
+  const [hours, minutes] = time.split(':').map(Number);
+  const next = new Date(now);
+  next.setHours(hours, minutes, 0, 0);
+  if (next <= now) {
+    if (frequency === 'daily') next.setDate(next.getDate() + 1);
+    else if (frequency === 'weekly') next.setDate(next.getDate() + 7);
+    else next.setMonth(next.getMonth() + 1);
+  }
+  return next.toISOString().replace('T', ' ').split('.')[0];
+};
 
 const SystemBackup = () => {
-  const { backups: dbBackups, loading: backupsLoading, fetchBackups, deleteBackup } = useConfigBackups();
+  const queryClient = useQueryClient();
+  const { backups: dbBackups, loading: backupsLoading, recordBackup } = useConfigBackups();
+  const { data: dbSettings = [] } = useSystemSettings();
 
   const recentBackups = dbBackups.length > 0
     ? dbBackups.slice(0, 4).map(b => ({
@@ -133,8 +141,8 @@ const SystemBackup = () => {
   const [exportConfig, setExportConfig] = useState<ExportConfig>({
     system: true, interfaces: true, firewallRules: true, natRules: true,
     aliases: true, services: true, schedules: true, ipPools: true,
-    vpn: true, dns: true, dhcp: true, users: true, ldap: true,
-    certificates: true, securityProfiles: true, routing: true, logging: true,
+    vpn: true, dns: true, dhcp: true, users: true,
+    certificates: true, securityProfiles: true, routing: true,
   });
   const [importing, setImporting] = useState(false);
   const [importPreview, setImportPreview] = useState<ImportPreview | null>(null);
@@ -142,10 +150,11 @@ const SystemBackup = () => {
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewContent, setPreviewContent] = useState('');
   const [confirmRestore, setConfirmRestore] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Scheduled backup states
-  const [scheduledBackups, setScheduledBackups] = useState<ScheduledBackup[]>(initialScheduledBackups);
+  // Scheduled backups — persisted in system_settings as JSON
+  const [scheduledBackups, setScheduledBackups] = useState<ScheduledBackup[]>([]);
   const [scheduleModalOpen, setScheduleModalOpen] = useState(false);
   const [editingSchedule, setEditingSchedule] = useState<ScheduledBackup | null>(null);
   const [scheduleForm, setScheduleForm] = useState({
@@ -157,6 +166,23 @@ const SystemBackup = () => {
     enabled: true,
   });
 
+  // Load scheduled backups from system_settings
+  useEffect(() => {
+    if (!dbSettings || (dbSettings as any[]).length === 0) return;
+    const raw = (dbSettings as any[]).find((s: any) => s.key === 'scheduled_backups')?.value;
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) setScheduledBackups(parsed);
+      } catch { /* ignore */ }
+    }
+  }, [dbSettings]);
+
+  const persistSchedules = async (schedules: ScheduledBackup[]) => {
+    await systemSettingsApi.upsert('scheduled_backups', JSON.stringify(schedules));
+    queryClient.invalidateQueries({ queryKey: ['system-settings'] });
+  };
+
   const selectedCount = Object.values(exportConfig).filter(Boolean).length;
   const allSelected = selectedCount === configSections.length;
 
@@ -165,6 +191,129 @@ const SystemBackup = () => {
     const newConfig = { ...exportConfig };
     configSections.forEach(s => { newConfig[s.key as keyof ExportConfig] = newValue; });
     setExportConfig(newConfig);
+  };
+
+  const getSectionsParam = () => {
+    return configSections
+      .filter(s => exportConfig[s.key as keyof ExportConfig])
+      .map(s => s.apiKey)
+      .join(',');
+  };
+
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      const res = await fetch(`/api/backup/export?sections=${getSectionsParam()}`, {
+        credentials: 'include',
+      });
+      if (!res.ok) throw new Error('Export failed');
+      const data = await res.json();
+      const content = JSON.stringify(data, null, 2);
+      const filename = `sonaro-gate-backup-${new Date().toISOString().split('T')[0]}.json`;
+      const blob = new Blob([content], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = filename;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      // Record in history
+      const sectionNames = configSections.filter(s => exportConfig[s.key as keyof ExportConfig]).map(s => s.label);
+      await recordBackup({
+        filename,
+        size_bytes: content.length,
+        type: 'manual',
+        status: 'success',
+        firmware_version: '2025.1',
+        sections: sectionNames,
+        notes: `Full system backup — ${selectedCount} sections`,
+      });
+
+      toast.success(`Full system backup exported: ${filename}`);
+    } catch {
+      toast.error('Export failed — check connection');
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const handlePreview = async () => {
+    setExporting(true);
+    try {
+      const res = await fetch(`/api/backup/export?sections=${getSectionsParam()}`, {
+        credentials: 'include',
+      });
+      if (!res.ok) throw new Error('Preview failed');
+      const data = await res.json();
+      setPreviewContent(JSON.stringify(data, null, 2));
+      setPreviewOpen(true);
+    } catch {
+      toast.error('Preview failed');
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const content = e.target?.result as string;
+        const data = JSON.parse(content);
+        const sections: Record<string, number> = {};
+        configSections.forEach(section => {
+          const key = section.apiKey;
+          const val = data[key] || data[section.key];
+          if (val) sections[section.key] = Array.isArray(val) ? val.length : 1;
+        });
+        const errors: string[] = [];
+        const warnings: string[] = [];
+        if (!data.version) errors.push('Missing version field');
+        if (data.version && data.version !== '2.0' && data.version !== '1.0') warnings.push(`Unknown version: ${data.version}`);
+        if (Object.keys(sections).length === 0) errors.push('No configuration sections found');
+        if (data.hostname && data.hostname !== 'SONARO-GATE') warnings.push(`Backup from different device: ${data.hostname}`);
+        setImportPreview({ sections, version: data.version || 'unknown', exportDate: data.exportDate || 'unknown', hostname: data.hostname || 'unknown', valid: errors.length === 0, errors, warnings });
+        setImportData(data);
+        setImporting(true);
+      } catch { toast.error('Failed to parse backup file'); }
+    };
+    reader.readAsText(file);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const handleRestore = () => {
+    if (!importData) return;
+    setConfirmRestore(true);
+  };
+
+  const confirmRestoreAction = async () => {
+    setConfirmRestore(false);
+    try {
+      const res = await apiRequest('POST', '/api/backup/import', importData);
+      const result = await res.json();
+      if (result.ok) {
+        const imported = Object.entries(result.imported)
+          .map(([k, v]) => `${v} ${k.replace(/_/g, ' ')}`)
+          .join(', ');
+        toast.success(`System restored: ${imported || 'configuration applied'}`);
+      } else {
+        toast.error(result.error || 'Restore failed');
+      }
+    } catch {
+      toast.error('Restore failed — check connection');
+    } finally {
+      setImporting(false);
+      setImportPreview(null);
+      setImportData(null);
+    }
+  };
+
+  const cancelImport = () => {
+    setImporting(false);
+    setImportPreview(null);
+    setImportData(null);
   };
 
   // Scheduled backup handlers
@@ -176,178 +325,58 @@ const SystemBackup = () => {
 
   const handleEditSchedule = (schedule: ScheduledBackup) => {
     setEditingSchedule(schedule);
-    setScheduleForm({
-      name: schedule.name,
-      frequency: schedule.frequency,
-      time: schedule.time,
-      day: schedule.day || 0,
-      retention: schedule.retention,
-      enabled: schedule.enabled,
-    });
+    setScheduleForm({ name: schedule.name, frequency: schedule.frequency, time: schedule.time, day: schedule.day || 0, retention: schedule.retention, enabled: schedule.enabled });
     setScheduleModalOpen(true);
   };
 
-  const handleSaveSchedule = () => {
-    if (!scheduleForm.name) {
-      toast.error('Please enter a schedule name');
-      return;
-    }
-
-    const getNextRun = () => {
-      const now = new Date();
-      const [hours, minutes] = scheduleForm.time.split(':').map(Number);
-      const next = new Date(now);
-      next.setHours(hours, minutes, 0, 0);
-      
-      if (next <= now) {
-        next.setDate(next.getDate() + 1);
-      }
-      
-      return next.toISOString().replace('T', ' ').split('.')[0];
-    };
-
+  const handleSaveSchedule = async () => {
+    if (!scheduleForm.name) { toast.error('Please enter a schedule name'); return; }
+    let updated: ScheduledBackup[];
     if (editingSchedule) {
-      setScheduledBackups(scheduledBackups.map(s => s.id === editingSchedule.id ? {
-        ...s,
-        ...scheduleForm,
-        nextRun: getNextRun(),
-      } : s));
+      updated = scheduledBackups.map(s => s.id === editingSchedule.id ? { ...s, ...scheduleForm, nextRun: getNextRun(scheduleForm.frequency, scheduleForm.time, scheduleForm.day) } : s);
       toast.success('Schedule updated');
     } else {
-      const newSchedule: ScheduledBackup = {
-        id: Date.now().toString(),
-        ...scheduleForm,
-        nextRun: getNextRun(),
-      };
-      setScheduledBackups([...scheduledBackups, newSchedule]);
+      const newSchedule: ScheduledBackup = { id: crypto.randomUUID(), ...scheduleForm, nextRun: getNextRun(scheduleForm.frequency, scheduleForm.time, scheduleForm.day) };
+      updated = [...scheduledBackups, newSchedule];
       toast.success('Schedule created');
     }
+    setScheduledBackups(updated);
+    await persistSchedules(updated);
     setScheduleModalOpen(false);
   };
 
-  const handleToggleSchedule = (id: string) => {
-    setScheduledBackups(scheduledBackups.map(s => s.id === id ? { ...s, enabled: !s.enabled } : s));
-    const schedule = scheduledBackups.find(s => s.id === id);
-    toast.success(`Schedule ${schedule?.enabled ? 'disabled' : 'enabled'}`);
+  const handleToggleSchedule = async (id: string) => {
+    const updated = scheduledBackups.map(s => s.id === id ? { ...s, enabled: !s.enabled } : s);
+    setScheduledBackups(updated);
+    const schedule = updated.find(s => s.id === id);
+    toast.success(`Schedule ${schedule?.enabled ? 'enabled' : 'disabled'}`);
+    await persistSchedules(updated);
   };
 
-  const handleDeleteSchedule = (id: string) => {
-    setScheduledBackups(scheduledBackups.filter(s => s.id !== id));
+  const handleDeleteSchedule = async (id: string) => {
+    const updated = scheduledBackups.filter(s => s.id !== id);
+    setScheduledBackups(updated);
+    await persistSchedules(updated);
     toast.success('Schedule deleted');
   };
 
-  const handleRunNow = (schedule: ScheduledBackup) => {
-    toast.success(`Running backup: ${schedule.name}`);
-  };
-
-  const generateExportData = () => {
-    const data: any = {
-      version: '2.0',
-      exportDate: new Date().toISOString(),
-      hostname: 'SONARO-GATE',
-      type: 'full_system_backup',
-    };
-    return data;
-  };
-
-  const handleExport = () => {
-    const data = generateExportData();
-    const content = JSON.stringify(data, null, 2);
-    const filename = `sonaro-gate-backup-${new Date().toISOString().split('T')[0]}.json`;
-    
-    const blob = new Blob([content], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-
-    toast.success(`Full system backup exported: ${filename}`);
-  };
-
-  const handlePreview = () => {
-    const data = generateExportData();
-    setPreviewContent(JSON.stringify(data, null, 2));
-    setPreviewOpen(true);
-  };
-
-  const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      try {
-        const content = e.target?.result as string;
-        const data = JSON.parse(content);
-
-        const sections: Record<string, number> = {};
-        configSections.forEach(section => {
-          const sectionData = data[section.key];
-          if (sectionData) {
-            sections[section.key] = Array.isArray(sectionData) ? sectionData.length : 1;
-          }
-        });
-
-        const errors: string[] = [];
-        const warnings: string[] = [];
-
-        if (!data.version) {
-          errors.push('Missing version field');
-        }
-        if (data.version && data.version !== '2.0' && data.version !== '1.0') {
-          warnings.push(`Unknown version: ${data.version}`);
-        }
-        if (Object.keys(sections).length === 0) {
-          errors.push('No configuration sections found');
-        }
-        if (data.hostname && data.hostname !== 'SONARO-GATE') {
-          warnings.push(`Backup from different device: ${data.hostname}`);
-        }
-
-        setImportPreview({
-          sections,
-          version: data.version || 'unknown',
-          exportDate: data.exportDate || 'unknown',
-          hostname: data.hostname || 'unknown',
-          valid: errors.length === 0,
-          errors,
-          warnings,
-        });
-        setImportData(data);
-        setImporting(true);
-      } catch (err) {
-        toast.error('Failed to parse backup file');
-      }
-    };
-    reader.readAsText(file);
-    
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
+  const handleRunNow = async (schedule: ScheduledBackup) => {
+    toast.info(`Running backup: ${schedule.name}…`);
+    try {
+      const res = await fetch(`/api/backup/export?sections=firewall_rules,nat_rules,aliases,schedules`, { credentials: 'include' });
+      if (!res.ok) throw new Error();
+      const data = await res.json();
+      const content = JSON.stringify(data, null, 2);
+      const filename = `${schedule.name.toLowerCase().replace(/\s+/g, '-')}-${new Date().toISOString().split('T')[0]}.json`;
+      await recordBackup({ filename, size_bytes: content.length, type: 'scheduled', status: 'success', firmware_version: '2025.1', sections: ['Firewall Rules', 'NAT Rules', 'Aliases', 'Schedules'], notes: `Scheduled: ${schedule.name}` });
+      // Update lastRun
+      const updated = scheduledBackups.map(s => s.id === schedule.id ? { ...s, lastRun: new Date().toISOString().replace('T', ' ').split('.')[0], nextRun: getNextRun(s.frequency, s.time, s.day) } : s);
+      setScheduledBackups(updated);
+      await persistSchedules(updated);
+      toast.success(`Backup completed: ${schedule.name}`);
+    } catch {
+      toast.error('Backup run failed');
     }
-  };
-
-  const handleRestore = () => {
-    if (!importData) return;
-    setConfirmRestore(true);
-  };
-
-  const confirmRestoreAction = () => {
-    const restored = Object.keys(importPreview?.sections || {}).length;
-    toast.success(`System restored from backup: ${restored} configuration sections applied`);
-    setImporting(false);
-    setImportPreview(null);
-    setImportData(null);
-    setConfirmRestore(false);
-  };
-
-  const cancelImport = () => {
-    setImporting(false);
-    setImportPreview(null);
-    setImportData(null);
   };
 
   return (
@@ -364,7 +393,7 @@ const SystemBackup = () => {
               <p className="text-[11px] text-[#666]">Export and import complete system configuration</p>
             </div>
           </div>
-          <button className="forti-toolbar-btn" onClick={() => toast.success('Backup list refreshed')}>
+          <button className="forti-toolbar-btn" onClick={() => queryClient.invalidateQueries({ queryKey: ['/api/crud/config_backups'] })}>
             <RefreshCw className="w-3 h-3" />
             Refresh
           </button>
@@ -378,10 +407,7 @@ const SystemBackup = () => {
                 <Download className="w-4 h-4" />
                 <span>Export Full Backup</span>
               </div>
-              <button 
-                className="text-[10px] text-blue-600 hover:underline"
-                onClick={toggleAll}
-              >
+              <button className="text-[10px] text-blue-600 hover:underline" onClick={toggleAll}>
                 {allSelected ? 'Deselect All' : 'Select All'}
               </button>
             </div>
@@ -396,17 +422,9 @@ const SystemBackup = () => {
                         ? "border-[hsl(142,70%,35%)]/50 bg-[hsl(142,70%,35%)]/5"
                         : "border-[#ddd] bg-[#f9f9f9] hover:bg-[#f0f0f0]"
                     )}
-                    onClick={() => setExportConfig(prev => ({ 
-                      ...prev, 
-                      [section.key]: !prev[section.key as keyof ExportConfig] 
-                    }))}
+                    onClick={() => setExportConfig(prev => ({ ...prev, [section.key]: !prev[section.key as keyof ExportConfig] }))}
                   >
-                    <input
-                      type="checkbox"
-                      className="forti-checkbox"
-                      checked={exportConfig[section.key as keyof ExportConfig]}
-                      onChange={() => {}}
-                    />
+                    <input type="checkbox" className="forti-checkbox" checked={exportConfig[section.key as keyof ExportConfig]} onChange={() => {}} />
                     <section.icon className={cn("w-3.5 h-3.5", section.color)} />
                     <span className="text-[10px] font-medium truncate">{section.label}</span>
                   </div>
@@ -414,12 +432,12 @@ const SystemBackup = () => {
               </div>
 
               <div className="flex items-center gap-2 pt-3 border-t border-[#ddd]">
-                <Button variant="outline" size="sm" onClick={handlePreview} disabled={selectedCount === 0}>
+                <Button variant="outline" size="sm" onClick={handlePreview} disabled={selectedCount === 0 || exporting}>
                   Preview
                 </Button>
-                <Button size="sm" onClick={handleExport} disabled={selectedCount === 0} className="flex-1">
+                <Button size="sm" onClick={handleExport} disabled={selectedCount === 0 || exporting} className="flex-1">
                   <Download className="w-3 h-3 mr-1" />
-                  Export {selectedCount} Sections
+                  {exporting ? 'Exporting…' : `Export ${selectedCount} Sections`}
                 </Button>
               </div>
             </div>
@@ -434,19 +452,25 @@ const SystemBackup = () => {
               </div>
             </div>
             <div className="section-body">
-              <div className="space-y-2">
-                {recentBackups.map((backup, idx) => (
-                  <div key={idx} className="flex items-center justify-between p-2 bg-[#f5f5f5] border border-[#ddd] rounded text-[10px]">
-                    <div>
-                      <div className="font-medium">{backup.date}</div>
-                      <div className="text-[#666]">{backup.type} • {backup.size}</div>
+              {backupsLoading ? (
+                <div className="text-center text-[11px] text-[#999] py-4">Loading…</div>
+              ) : recentBackups.length === 0 ? (
+                <div className="text-center text-[11px] text-[#999] py-4">No backups yet</div>
+              ) : (
+                <div className="space-y-2">
+                  {recentBackups.map((backup, idx) => (
+                    <div key={idx} className="flex items-center justify-between p-2 bg-[#f5f5f5] border border-[#ddd] rounded text-[10px]">
+                      <div>
+                        <div className="font-medium">{backup.date}</div>
+                        <div className="text-[#666]">{backup.type} • {backup.size}</div>
+                      </div>
+                      <span className="px-1.5 py-0.5 bg-green-100 text-green-700 border border-green-200 rounded text-[9px]">
+                        {backup.status}
+                      </span>
                     </div>
-                    <span className="px-1.5 py-0.5 bg-green-100 text-green-700 border border-green-200 rounded text-[9px]">
-                      {backup.status}
-                    </span>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -458,10 +482,7 @@ const SystemBackup = () => {
               <Calendar className="w-4 h-4" />
               <span>Scheduled Backups</span>
             </div>
-            <button 
-              className="text-[10px] text-[hsl(142,70%,35%)] hover:underline"
-              onClick={handleCreateSchedule}
-            >
+            <button className="text-[10px] text-[hsl(142,70%,35%)] hover:underline" onClick={handleCreateSchedule}>
               + Add Schedule
             </button>
           </div>
@@ -473,20 +494,17 @@ const SystemBackup = () => {
             ) : (
               <div className="space-y-2">
                 {scheduledBackups.map((schedule) => (
-                  <div 
-                    key={schedule.id} 
+                  <div
+                    key={schedule.id}
                     className={cn(
                       "flex items-center justify-between p-3 border rounded",
                       schedule.enabled ? "bg-[#f5f5f5] border-[#ddd]" : "bg-gray-100 border-gray-200 opacity-60"
                     )}
                   >
                     <div className="flex items-center gap-3">
-                      <button 
+                      <button
                         onClick={() => handleToggleSchedule(schedule.id)}
-                        className={cn(
-                          "w-8 h-8 rounded-full flex items-center justify-center transition-colors",
-                          schedule.enabled ? "bg-[hsl(142,70%,35%)] text-white" : "bg-gray-300 text-gray-600"
-                        )}
+                        className={cn("w-8 h-8 rounded-full flex items-center justify-center transition-colors", schedule.enabled ? "bg-[hsl(142,70%,35%)] text-white" : "bg-gray-300 text-gray-600")}
                       >
                         {schedule.enabled ? <Play className="w-3 h-3" /> : <Pause className="w-3 h-3" />}
                       </button>
@@ -494,7 +512,7 @@ const SystemBackup = () => {
                         <div className="text-[11px] font-medium">{schedule.name}</div>
                         <div className="text-[10px] text-[#666]">
                           {schedule.frequency.charAt(0).toUpperCase() + schedule.frequency.slice(1)} at {schedule.time}
-                          {schedule.frequency === 'weekly' && ` (${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][schedule.day || 0]})`}
+                          {schedule.frequency === 'weekly' && ` (${['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][schedule.day || 0]})`}
                         </div>
                       </div>
                     </div>
@@ -507,26 +525,20 @@ const SystemBackup = () => {
                         <div className="text-[10px] text-[#666]">Retention</div>
                         <div className="text-[10px]">{schedule.retention} backups</div>
                       </div>
+                      {schedule.lastRun && (
+                        <div className="text-right">
+                          <div className="text-[10px] text-[#666]">Last run</div>
+                          <div className="text-[10px] font-mono">{schedule.lastRun}</div>
+                        </div>
+                      )}
                       <div className="flex items-center gap-1">
-                        <button 
-                          className="p-1.5 text-blue-600 hover:bg-blue-100 rounded"
-                          onClick={() => handleRunNow(schedule)}
-                          title="Run Now"
-                        >
+                        <button className="p-1.5 text-blue-600 hover:bg-blue-100 rounded" onClick={() => handleRunNow(schedule)} title="Run Now">
                           <Play className="w-3 h-3" />
                         </button>
-                        <button 
-                          className="p-1.5 text-gray-600 hover:bg-gray-200 rounded"
-                          onClick={() => handleEditSchedule(schedule)}
-                          title="Edit"
-                        >
+                        <button className="p-1.5 text-gray-600 hover:bg-gray-200 rounded" onClick={() => handleEditSchedule(schedule)} title="Edit">
                           <Settings className="w-3 h-3" />
                         </button>
-                        <button 
-                          className="p-1.5 text-red-600 hover:bg-red-100 rounded"
-                          onClick={() => handleDeleteSchedule(schedule.id)}
-                          title="Delete"
-                        >
+                        <button className="p-1.5 text-red-600 hover:bg-red-100 rounded" onClick={() => handleDeleteSchedule(schedule.id)} title="Delete">
                           <Trash2 className="w-3 h-3" />
                         </button>
                       </div>
@@ -554,30 +566,19 @@ const SystemBackup = () => {
                   className="border-2 border-dashed border-[#ccc] rounded-lg p-8 text-center cursor-pointer hover:border-[hsl(142,70%,35%)] hover:bg-[hsl(142,70%,35%)]/5 transition-colors"
                 >
                   <Package className="w-10 h-10 mx-auto text-[#999] mb-3" />
-                  <p className="text-[11px] text-[#666] mb-1">
-                    Click to select backup file or drag & drop
-                  </p>
-                  <p className="text-[10px] text-[#999]">
-                    Supports .json backup files
-                  </p>
+                  <p className="text-[11px] text-[#666] mb-1">Click to select backup file or drag & drop</p>
+                  <p className="text-[10px] text-[#999]">Supports .json backup files exported from Sonaro Gate</p>
                 </div>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept=".json"
-                  onChange={handleFileSelect}
-                  className="hidden"
-                />
-                
+                <input ref={fileInputRef} type="file" accept=".json" onChange={handleFileSelect} className="hidden" />
                 <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
                   <div className="flex items-start gap-2">
                     <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
                     <div className="text-[11px] text-amber-800">
                       <strong>Important:</strong>
                       <ul className="mt-1 space-y-1 list-disc list-inside">
-                        <li>Restoring will replace current configuration</li>
+                        <li>Restoring merges with existing configuration</li>
+                        <li>Duplicate objects are skipped (no overwrite)</li>
                         <li>Create a backup before restoring</li>
-                        <li>System may restart after restore</li>
                         <li>Verify backup compatibility before import</li>
                       </ul>
                     </div>
@@ -588,38 +589,22 @@ const SystemBackup = () => {
               <div className="space-y-4">
                 {importPreview && (
                   <>
-                    <div className={cn(
-                      "flex items-center gap-2 p-3 rounded-lg",
-                      importPreview.valid 
-                        ? "bg-green-50 border border-green-200" 
-                        : "bg-red-50 border border-red-200"
-                    )}>
-                      {importPreview.valid ? (
-                        <Check className="w-4 h-4 text-green-600" />
-                      ) : (
-                        <AlertTriangle className="w-4 h-4 text-red-600" />
-                      )}
+                    <div className={cn("flex items-center gap-2 p-3 rounded-lg", importPreview.valid ? "bg-green-50 border border-green-200" : "bg-red-50 border border-red-200")}>
+                      {importPreview.valid ? <Check className="w-4 h-4 text-green-600" /> : <AlertTriangle className="w-4 h-4 text-red-600" />}
                       <span className={cn("text-[11px] font-medium", importPreview.valid ? "text-green-700" : "text-red-700")}>
                         {importPreview.valid ? 'Backup file validated successfully' : 'Validation errors found'}
                       </span>
                     </div>
-
                     {importPreview.errors.length > 0 && (
                       <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-[11px] text-red-700 space-y-1">
-                        {importPreview.errors.map((error, idx) => (
-                          <div key={idx}>• {error}</div>
-                        ))}
+                        {importPreview.errors.map((error, idx) => <div key={idx}>• {error}</div>)}
                       </div>
                     )}
-
                     {importPreview.warnings.length > 0 && (
                       <div className="p-3 rounded-lg bg-amber-50 border border-amber-200 text-[11px] text-amber-700 space-y-1">
-                        {importPreview.warnings.map((warning, idx) => (
-                          <div key={idx}>⚠ {warning}</div>
-                        ))}
+                        {importPreview.warnings.map((warning, idx) => <div key={idx}>⚠ {warning}</div>)}
                       </div>
                     )}
-
                     <div className="grid grid-cols-3 gap-2 text-[10px]">
                       <div className="p-2 bg-[#f5f5f5] border border-[#ddd] rounded">
                         <div className="text-[#666]">Version</div>
@@ -634,34 +619,18 @@ const SystemBackup = () => {
                         <div className="font-medium">{new Date(importPreview.exportDate).toLocaleDateString()}</div>
                       </div>
                     </div>
-
                     <div className="grid grid-cols-3 md:grid-cols-6 gap-2">
                       {configSections.filter(s => importPreview.sections[s.key]).map((section) => (
-                        <div
-                          key={section.key}
-                          className="flex items-center gap-1.5 p-2 bg-[#f5f5f5] border border-[#ddd] rounded"
-                        >
+                        <div key={section.key} className="flex items-center gap-1.5 p-2 bg-[#f5f5f5] border border-[#ddd] rounded">
                           <section.icon className={cn("w-3 h-3", section.color)} />
                           <span className="text-[10px] font-medium truncate">{section.label}</span>
-                          <span className="text-[9px] text-[#666] ml-auto">
-                            {Array.isArray(importPreview.sections[section.key]) 
-                              ? importPreview.sections[section.key] 
-                              : '✓'}
-                          </span>
+                          <span className="text-[9px] text-[#666] ml-auto">{importPreview.sections[section.key] || '✓'}</span>
                         </div>
                       ))}
                     </div>
-
                     <div className="flex items-center gap-2 pt-3 border-t border-[#ddd]">
-                      <Button variant="outline" size="sm" onClick={cancelImport}>
-                        Cancel
-                      </Button>
-                      <Button 
-                        size="sm" 
-                        onClick={handleRestore} 
-                        disabled={!importPreview.valid}
-                        className="flex-1 bg-amber-600 hover:bg-amber-700"
-                      >
+                      <Button variant="outline" size="sm" onClick={cancelImport}>Cancel</Button>
+                      <Button size="sm" onClick={handleRestore} disabled={!importPreview.valid} className="flex-1 bg-amber-600 hover:bg-amber-700">
                         <Upload className="w-3 h-3 mr-1" />
                         Restore System Configuration
                       </Button>
@@ -695,22 +664,12 @@ const SystemBackup = () => {
           <div className="space-y-4">
             <div>
               <label className="forti-label">Schedule Name *</label>
-              <input
-                type="text"
-                className="forti-input w-full"
-                value={scheduleForm.name}
-                onChange={(e) => setScheduleForm({ ...scheduleForm, name: e.target.value })}
-                placeholder="e.g., Daily Backup"
-              />
+              <input type="text" className="forti-input w-full" value={scheduleForm.name} onChange={(e) => setScheduleForm({ ...scheduleForm, name: e.target.value })} placeholder="e.g., Daily Backup" />
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="forti-label">Frequency</label>
-                <select
-                  className="forti-select w-full"
-                  value={scheduleForm.frequency}
-                  onChange={(e) => setScheduleForm({ ...scheduleForm, frequency: e.target.value as any })}
-                >
+                <select className="forti-select w-full" value={scheduleForm.frequency} onChange={(e) => setScheduleForm({ ...scheduleForm, frequency: e.target.value as any })}>
                   <option value="daily">Daily</option>
                   <option value="weekly">Weekly</option>
                   <option value="monthly">Monthly</option>
@@ -718,61 +677,30 @@ const SystemBackup = () => {
               </div>
               <div>
                 <label className="forti-label">Time</label>
-                <input
-                  type="time"
-                  className="forti-input w-full"
-                  value={scheduleForm.time}
-                  onChange={(e) => setScheduleForm({ ...scheduleForm, time: e.target.value })}
-                />
+                <input type="time" className="forti-input w-full" value={scheduleForm.time} onChange={(e) => setScheduleForm({ ...scheduleForm, time: e.target.value })} />
               </div>
             </div>
             {scheduleForm.frequency === 'weekly' && (
               <div>
                 <label className="forti-label">Day of Week</label>
-                <select
-                  className="forti-select w-full"
-                  value={scheduleForm.day}
-                  onChange={(e) => setScheduleForm({ ...scheduleForm, day: parseInt(e.target.value) })}
-                >
-                  <option value={0}>Sunday</option>
-                  <option value={1}>Monday</option>
-                  <option value={2}>Tuesday</option>
-                  <option value={3}>Wednesday</option>
-                  <option value={4}>Thursday</option>
-                  <option value={5}>Friday</option>
-                  <option value={6}>Saturday</option>
+                <select className="forti-select w-full" value={scheduleForm.day} onChange={(e) => setScheduleForm({ ...scheduleForm, day: parseInt(e.target.value) })}>
+                  <option value={0}>Sunday</option><option value={1}>Monday</option><option value={2}>Tuesday</option>
+                  <option value={3}>Wednesday</option><option value={4}>Thursday</option><option value={5}>Friday</option><option value={6}>Saturday</option>
                 </select>
               </div>
             )}
             {scheduleForm.frequency === 'monthly' && (
               <div>
                 <label className="forti-label">Day of Month</label>
-                <input
-                  type="number"
-                  className="forti-input w-full"
-                  min={1}
-                  max={28}
-                  value={scheduleForm.day}
-                  onChange={(e) => setScheduleForm({ ...scheduleForm, day: parseInt(e.target.value) })}
-                />
+                <input type="number" className="forti-input w-full" min={1} max={28} value={scheduleForm.day} onChange={(e) => setScheduleForm({ ...scheduleForm, day: parseInt(e.target.value) })} />
               </div>
             )}
             <div>
               <label className="forti-label">Retention (number of backups to keep)</label>
-              <input
-                type="number"
-                className="forti-input w-full"
-                min={1}
-                max={100}
-                value={scheduleForm.retention}
-                onChange={(e) => setScheduleForm({ ...scheduleForm, retention: parseInt(e.target.value) })}
-              />
+              <input type="number" className="forti-input w-full" min={1} max={100} value={scheduleForm.retention} onChange={(e) => setScheduleForm({ ...scheduleForm, retention: parseInt(e.target.value) })} />
             </div>
             <div className="flex items-center gap-2">
-              <Switch 
-                checked={scheduleForm.enabled} 
-                onCheckedChange={(checked) => setScheduleForm({ ...scheduleForm, enabled: checked })}
-              />
+              <Switch checked={scheduleForm.enabled} onCheckedChange={(checked) => setScheduleForm({ ...scheduleForm, enabled: checked })} />
               <span className="text-[11px]">Enable schedule</span>
             </div>
             <div className="flex justify-end gap-2 pt-4">
@@ -794,9 +722,9 @@ const SystemBackup = () => {
             <AlertDialogDescription className="space-y-2">
               <p>You are about to restore the system configuration from backup.</p>
               <ul className="text-[11px] space-y-1 list-disc list-inside mt-2">
-                <li>Current configuration will be replaced</li>
+                <li>Configuration will be merged with existing data</li>
+                <li>Duplicate objects will be skipped</li>
                 <li>Active sessions may be interrupted</li>
-                <li>System services may restart</li>
               </ul>
               <p className="font-medium mt-3">Are you sure you want to continue?</p>
             </AlertDialogDescription>

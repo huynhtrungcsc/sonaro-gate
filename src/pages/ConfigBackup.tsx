@@ -15,6 +15,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { FortiToggle } from '@/components/ui/forti-toggle';
 import { useConfigBackups } from '@/hooks/useConfigBackups';
 import { formatBytes } from '@/lib/formatters';
+import { useQuery } from '@tanstack/react-query';
+import { apiRequest } from '@/lib/queryClient';
 
 interface ExportConfig {
   firewallRules: boolean;
@@ -35,7 +37,7 @@ interface ImportPreview {
 }
 
 const ConfigBackup = () => {
-  const { backups, loading: backupsLoading } = useConfigBackups();
+  const { backups, loading: backupsLoading, recordBackup } = useConfigBackups();
   const [activeTab, setActiveTab] = useState('backup');
   const [exportConfig, setExportConfig] = useState<ExportConfig>({
     firewallRules: true, natRules: true, aliases: true, schedules: true,
@@ -46,24 +48,74 @@ const ConfigBackup = () => {
   const [importData, setImportData] = useState<any>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewContent, setPreviewContent] = useState('');
+  const [exporting, setExporting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const { data: frCount = 0 } = useQuery<number>({
+    queryKey: ['/api/crud/firewall_rules', 'count'],
+    queryFn: async () => {
+      const r = await fetch('/api/crud/firewall_rules?select=id', { credentials: 'include' });
+      if (!r.ok) return 0;
+      const d = await r.json();
+      return Array.isArray(d) ? d.length : 0;
+    },
+  });
+  const { data: natCount = 0 } = useQuery<number>({
+    queryKey: ['/api/crud/nat_rules', 'count'],
+    queryFn: async () => {
+      const r = await fetch('/api/crud/nat_rules?select=id', { credentials: 'include' });
+      if (!r.ok) return 0;
+      const d = await r.json();
+      return Array.isArray(d) ? d.length : 0;
+    },
+  });
+  const { data: aliasCount = 0 } = useQuery<number>({
+    queryKey: ['/api/crud/aliases', 'count'],
+    queryFn: async () => {
+      const r = await fetch('/api/crud/aliases?select=id', { credentials: 'include' });
+      if (!r.ok) return 0;
+      const d = await r.json();
+      return Array.isArray(d) ? d.length : 0;
+    },
+  });
+  const { data: schedCount = 0 } = useQuery<number>({
+    queryKey: ['/api/crud/schedules', 'count'],
+    queryFn: async () => {
+      const r = await fetch('/api/crud/schedules?select=id', { credentials: 'include' });
+      if (!r.ok) return 0;
+      const d = await r.json();
+      return Array.isArray(d) ? d.length : 0;
+    },
+  });
+
   const configSections = [
-    { key: 'firewallRules', label: 'Firewall Rules', icon: Shield, count: 0 },
-    { key: 'natRules', label: 'NAT Rules', icon: ArrowRightLeft, count: 0 },
-    { key: 'aliases', label: 'Addresses', icon: Network, count: 0 },
-    { key: 'schedules', label: 'Schedules', icon: Clock, count: 0 },
+    { key: 'firewallRules', apiKey: 'firewall_rules', label: 'Firewall Rules', icon: Shield, count: frCount },
+    { key: 'natRules', apiKey: 'nat_rules', label: 'NAT Rules', icon: ArrowRightLeft, count: natCount },
+    { key: 'aliases', apiKey: 'aliases', label: 'Addresses', icon: Network, count: aliasCount },
+    { key: 'schedules', apiKey: 'schedules', label: 'Schedules', icon: Clock, count: schedCount },
   ];
 
   const selectedCount = Object.values(exportConfig).filter(Boolean).length;
 
-  const generateExportData = () => {
-    const data: any = {
-      version: '1.0',
-      exportDate: new Date().toISOString(),
-      hostname: 'SONARO-GATE',
+  const getSectionsParam = () => {
+    const map: Record<string, string> = {
+      firewallRules: 'firewall_rules',
+      natRules: 'nat_rules',
+      aliases: 'aliases',
+      schedules: 'schedules',
     };
-    return data;
+    return Object.entries(exportConfig)
+      .filter(([, v]) => v)
+      .map(([k]) => map[k])
+      .join(',');
+  };
+
+  const fetchExportData = async (): Promise<any> => {
+    const res = await fetch(`/api/backup/export?sections=${getSectionsParam()}`, {
+      credentials: 'include',
+    });
+    if (!res.ok) throw new Error('Export failed');
+    return res.json();
   };
 
   const convertToXML = (obj: any, rootName = 'config'): string => {
@@ -86,24 +138,51 @@ const ConfigBackup = () => {
     return `<?xml version="1.0" encoding="UTF-8"?>\n<${rootName}>\n${convert(obj, 1)}</${rootName}>`;
   };
 
-  const handleExport = () => {
-    const data = generateExportData();
-    const isJson = exportFormat === 'json';
-    const content = isJson ? JSON.stringify(data, null, 2) : convertToXML(data, 'sonaro-config');
-    const filename = `sonaro-config-${new Date().toISOString().split('T')[0]}.${exportFormat}`;
-    const blob = new Blob([content], { type: isJson ? 'application/json' : 'application/xml' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = filename;
-    document.body.appendChild(a); a.click(); document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-    toast.success(`Configuration exported as ${filename}`);
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      const data = await fetchExportData();
+      const isJson = exportFormat === 'json';
+      const content = isJson ? JSON.stringify(data, null, 2) : convertToXML(data, 'sonaro-config');
+      const filename = `sonaro-config-${new Date().toISOString().split('T')[0]}.${exportFormat}`;
+      const blob = new Blob([content], { type: isJson ? 'application/json' : 'application/xml' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = filename;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      // Record in backup history
+      const sectionNames = configSections.filter(s => exportConfig[s.key as keyof ExportConfig]).map(s => s.label);
+      await recordBackup({
+        filename,
+        size_bytes: content.length,
+        type: 'manual',
+        status: 'success',
+        firmware_version: '2025.1',
+        sections: sectionNames,
+        notes: `Exported ${selectedCount} sections`,
+      });
+
+      toast.success(`Configuration exported: ${filename}`);
+    } catch (err) {
+      toast.error('Export failed — check connection');
+    } finally {
+      setExporting(false);
+    }
   };
 
-  const handlePreview = () => {
-    const data = generateExportData();
-    setPreviewContent(exportFormat === 'json' ? JSON.stringify(data, null, 2) : convertToXML(data, 'sonaro-config'));
-    setPreviewOpen(true);
+  const handlePreview = async () => {
+    setExporting(true);
+    try {
+      const data = await fetchExportData();
+      setPreviewContent(exportFormat === 'json' ? JSON.stringify(data, null, 2) : convertToXML(data, 'sonaro-config'));
+      setPreviewOpen(true);
+    } catch {
+      toast.error('Preview failed');
+    } finally {
+      setExporting(false);
+    }
   };
 
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -116,8 +195,8 @@ const ConfigBackup = () => {
         if (!file.name.endsWith('.json')) { toast.error('Only JSON import is supported'); return; }
         const data = JSON.parse(content);
         const preview: ImportPreview = {
-          firewallRules: data.firewallRules?.length || 0,
-          natRules: data.natRules?.length || 0,
+          firewallRules: data.firewall_rules?.length || 0,
+          natRules: data.nat_rules?.length || 0,
           aliases: data.aliases?.length || 0,
           schedules: data.schedules?.length || 0,
           version: data.version || 'unknown',
@@ -126,7 +205,8 @@ const ConfigBackup = () => {
         };
         if (!data.version) { preview.errors.push('Missing version field'); preview.valid = false; }
         if (preview.firewallRules === 0 && preview.natRules === 0 && preview.aliases === 0 && preview.schedules === 0) {
-          preview.errors.push('No configuration data found'); preview.valid = false;
+          preview.errors.push('No configuration data found in this backup');
+          preview.valid = false;
         }
         setImportPreview(preview); setImportData(data); setImporting(true);
       } catch { toast.error('Failed to parse file'); }
@@ -135,15 +215,24 @@ const ConfigBackup = () => {
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  const handleImport = () => {
+  const handleImport = async () => {
     if (!importData) return;
-    const imported = [];
-    if (importData.firewallRules?.length) imported.push(`${importData.firewallRules.length} firewall rules`);
-    if (importData.natRules?.length) imported.push(`${importData.natRules.length} NAT rules`);
-    if (importData.aliases?.length) imported.push(`${importData.aliases.length} aliases`);
-    if (importData.schedules?.length) imported.push(`${importData.schedules.length} schedules`);
-    toast.success(`Imported: ${imported.join(', ')}`);
-    setImporting(false); setImportPreview(null); setImportData(null);
+    try {
+      const res = await apiRequest('POST', '/api/backup/import', importData);
+      const result = await res.json();
+      if (result.ok) {
+        const imported = Object.entries(result.imported)
+          .map(([k, v]) => `${v} ${k.replace(/_/g, ' ')}`)
+          .join(', ');
+        toast.success(`Imported: ${imported || 'configuration applied'}`);
+      } else {
+        toast.error(result.error || 'Import failed');
+      }
+    } catch {
+      toast.error('Import request failed');
+    } finally {
+      setImporting(false); setImportPreview(null); setImportData(null);
+    }
   };
 
   return (
@@ -160,16 +249,16 @@ const ConfigBackup = () => {
 
         {/* Toolbar */}
         <div className="forti-toolbar">
-          <button className="forti-toolbar-btn primary" onClick={handleExport} disabled={selectedCount === 0}>
+          <button className="forti-toolbar-btn primary" onClick={handleExport} disabled={selectedCount === 0 || exporting}>
             <Download size={12} />
-            <span>Backup</span>
+            <span>{exporting ? 'Exporting…' : 'Backup'}</span>
           </button>
           <button className="forti-toolbar-btn" onClick={() => fileInputRef.current?.click()}>
             <Upload size={12} />
             <span>Restore</span>
           </button>
           <div className="forti-toolbar-separator" />
-          <button className="forti-toolbar-btn" onClick={handlePreview} disabled={selectedCount === 0}>
+          <button className="forti-toolbar-btn" onClick={handlePreview} disabled={selectedCount === 0 || exporting}>
             <Eye size={12} />
             <span>Preview</span>
           </button>
@@ -187,10 +276,10 @@ const ConfigBackup = () => {
 
         {/* Stats Bar */}
         <StatsBar items={[
-          { icon: Shield, value: configSections.reduce((s, c) => s + c.count, 0), label: 'Total Objects', color: 'text-blue-600' },
-          { icon: Check, value: selectedCount, label: 'Selected', color: 'text-green-600' },
+          { icon: Shield, value: frCount + natCount + aliasCount + schedCount, label: 'Total Objects', color: 'text-blue-600' },
+          { icon: Check, value: selectedCount, label: 'Selected Sections', color: 'text-green-600' },
           { icon: exportFormat === 'json' ? FileJson : FileCode, value: exportFormat.toUpperCase(), label: 'Format', color: exportFormat === 'json' ? 'text-amber-600' : 'text-purple-600' },
-          { icon: Clock, value: backups.length, label: 'Recent Backups', color: 'text-gray-600' },
+          { icon: Clock, value: backups.length, label: 'Backup History', color: 'text-gray-600' },
         ]} />
 
         {/* Tabs */}
@@ -280,7 +369,6 @@ const ConfigBackup = () => {
                     <span>Import Preview</span>
                   </div>
                   <div className="p-3 space-y-2">
-                    {/* Validation status */}
                     <div className={cn(
                       "flex items-center gap-2 px-3 py-2 text-[11px] border",
                       importPreview.valid
@@ -331,7 +419,7 @@ const ConfigBackup = () => {
               {/* Warning banner */}
               <div className="px-3 py-2 bg-[#fff8e1] border-t border-[#f0d060] flex items-center gap-2 text-[11px] text-[#7a5d00]">
                 <AlertTriangle size={12} />
-                <span><strong>Note:</strong> Importing configuration will merge with existing data. Duplicate items may be overwritten. Always create a backup before restoring.</span>
+                <span><strong>Note:</strong> Importing configuration will merge with existing data. Duplicate items may be skipped. Always create a backup before restoring.</span>
               </div>
             </div>
           </TabsContent>
@@ -342,17 +430,18 @@ const ConfigBackup = () => {
               <thead>
                 <tr>
                   <th>Filename</th>
-                  <th className="w-32">Date</th>
-                  <th className="w-20 text-center">Format</th>
+                  <th className="w-36">Date</th>
+                  <th className="w-20 text-center">Type</th>
                   <th className="w-20 text-center">Size</th>
+                  <th>Sections</th>
                   <th className="w-24 text-center">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {backupsLoading ? (
-                  <tr><td colSpan={5} className="text-center text-[#999] py-4">Loading backup history...</td></tr>
+                  <tr><td colSpan={6} className="text-center text-[#999] py-4">Loading backup history…</td></tr>
                 ) : backups.length === 0 ? (
-                  <tr><td colSpan={5} className="text-center text-[#999] py-4">No backup history — use the Export button to create a backup</td></tr>
+                  <tr><td colSpan={6} className="text-center text-[#999] py-4">No backup history — use the Backup button to create your first backup</td></tr>
                 ) : backups.map((backup) => (
                   <tr key={backup.id}>
                     <td>
@@ -368,11 +457,9 @@ const ConfigBackup = () => {
                       </span>
                     </td>
                     <td className="text-center text-[#666]">{formatBytes(backup.size_bytes)}</td>
+                    <td className="text-[#666] text-[10px]">{backup.sections.join(', ') || '—'}</td>
                     <td className="text-center">
-                      <button className="forti-toolbar-btn" onClick={() => toast.success(`Downloaded ${backup.filename}`)}>
-                        <Download size={11} />
-                        <span>Download</span>
-                      </button>
+                      <span className="text-[10px] text-[#999]">Exported</span>
                     </td>
                   </tr>
                 ))}

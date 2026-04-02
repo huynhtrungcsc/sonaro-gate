@@ -7,7 +7,7 @@ import { createServer as createHttpServer } from 'http';
 import { createServer as createViteServer } from 'vite';
 import { attachWebSocket } from './ws.js';
 import { db } from './db.js';
-import { users, userRoles, networkInterfaces, systemSettings } from '../shared/schema.js';
+import { users, userRoles, networkInterfaces, systemSettings, firewallRules, natRules, aliases, schedules, certificates, staticRoutes, vpnTunnels, configBackups } from '../shared/schema.js';
 import { signToken, checkPassword, requireAuth } from './auth.js';
 import { createCrudRouter } from './postgrest.js';
 import { startAgent } from './agent.js';
@@ -254,6 +254,129 @@ async function startWebServer() {
   app.get('/api/system/ips/alerts', requireAuth, async (req, res) => {
     const limit = parseInt(req.query.limit as string) || 50;
     res.json({ alerts: await getRecentAlerts(limit) });
+  });
+
+  // ─────────────────────────────────────────────────
+  // Backup Export / Import
+  // ─────────────────────────────────────────────────
+
+  app.get('/api/backup/export', requireAuth, async (req, res) => {
+    try {
+      const sections = (req.query.sections as string || 'firewall_rules,nat_rules,aliases,schedules,certificates,static_routes,vpn_tunnels').split(',');
+      const hostname = (await db.select().from(systemSettings).where(
+        eq(systemSettings.key, 'hostname')
+      ).limit(1))[0]?.value || 'SONARO-GATE';
+
+      const data: Record<string, any> = {
+        version: '2.0',
+        exportDate: new Date().toISOString(),
+        hostname,
+        type: 'sonaro_gate_backup',
+      };
+
+      if (sections.includes('firewall_rules')) {
+        data.firewall_rules = await db.select().from(firewallRules);
+      }
+      if (sections.includes('nat_rules')) {
+        data.nat_rules = await db.select().from(natRules);
+      }
+      if (sections.includes('aliases')) {
+        data.aliases = await db.select().from(aliases);
+      }
+      if (sections.includes('schedules')) {
+        data.schedules = await db.select().from(schedules);
+      }
+      if (sections.includes('certificates')) {
+        data.certificates = await db.select().from(certificates);
+      }
+      if (sections.includes('static_routes')) {
+        data.static_routes = await db.select().from(staticRoutes);
+      }
+      if (sections.includes('vpn_tunnels')) {
+        data.vpn_tunnels = await db.select().from(vpnTunnels);
+      }
+
+      res.json(data);
+    } catch (err) {
+      res.status(500).json({ error: 'Export failed', message: String(err) });
+    }
+  });
+
+  app.post('/api/backup/import', requireAuth, async (req, res) => {
+    try {
+      const data = req.body;
+      if (!data || !data.version) {
+        return res.status(400).json({ error: 'Invalid backup file' });
+      }
+
+      const results: Record<string, number> = {};
+
+      if (data.firewall_rules?.length) {
+        for (const rule of data.firewall_rules) {
+          const { id, created_at, updated_at, ...rest } = rule;
+          await db.insert(firewallRules).values(rest).onConflictDoNothing();
+        }
+        results.firewall_rules = data.firewall_rules.length;
+      }
+      if (data.nat_rules?.length) {
+        for (const rule of data.nat_rules) {
+          const { id, created_at, updated_at, ...rest } = rule;
+          await db.insert(natRules).values(rest).onConflictDoNothing();
+        }
+        results.nat_rules = data.nat_rules.length;
+      }
+      if (data.aliases?.length) {
+        for (const alias of data.aliases) {
+          const { id, created_at, updated_at, ...rest } = alias;
+          await db.insert(aliases).values(rest).onConflictDoNothing();
+        }
+        results.aliases = data.aliases.length;
+      }
+      if (data.schedules?.length) {
+        for (const sched of data.schedules) {
+          const { id, created_at, updated_at, ...rest } = sched;
+          await db.insert(schedules).values(rest).onConflictDoNothing();
+        }
+        results.schedules = data.schedules.length;
+      }
+      if (data.certificates?.length) {
+        for (const cert of data.certificates) {
+          const { id, created_at, updated_at, ...rest } = cert;
+          await db.insert(certificates).values(rest).onConflictDoNothing();
+        }
+        results.certificates = data.certificates.length;
+      }
+      if (data.static_routes?.length) {
+        for (const route of data.static_routes) {
+          const { id, created_at, updated_at, ...rest } = route;
+          await db.insert(staticRoutes).values(rest).onConflictDoNothing();
+        }
+        results.static_routes = data.static_routes.length;
+      }
+      if (data.vpn_tunnels?.length) {
+        for (const tunnel of data.vpn_tunnels) {
+          const { id, created_at, updated_at, ...rest } = tunnel;
+          await db.insert(vpnTunnels).values(rest).onConflictDoNothing();
+        }
+        results.vpn_tunnels = data.vpn_tunnels.length;
+      }
+
+      // Record import in backup history
+      const totalItems = Object.values(results).reduce((a, b) => a + b, 0);
+      await db.insert(configBackups).values({
+        filename: `imported-${new Date().toISOString().split('T')[0]}.json`,
+        size_bytes: JSON.stringify(data).length,
+        type: 'manual',
+        status: 'success',
+        firmware_version: data.version || '2.0',
+        sections: Object.keys(results),
+        notes: `Imported from backup (v${data.version || 'unknown'}) — ${totalItems} objects`,
+      });
+
+      res.json({ ok: true, imported: results });
+    } catch (err) {
+      res.status(500).json({ error: 'Import failed', message: String(err) });
+    }
   });
 
   // ─────────────────────────────────────────────────

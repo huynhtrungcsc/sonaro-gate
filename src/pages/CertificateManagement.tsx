@@ -128,12 +128,33 @@ const CertificateManagement = () => {
   const queryClient = useQueryClient();
   const { data: certificates = [] } = useCertificates();
   const deleteMut = useMutation({ mutationFn: (id: string) => certificatesApi.delete(id), onSuccess: () => queryClient.invalidateQueries({ queryKey: ['certificates'] }), onError: () => toast.error('Failed to delete certificate') });
+  const createMut = useMutation({
+    mutationFn: (cert: any) => certificatesApi.create(cert),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['certificates'] }); toast.success('Certificate saved'); setModalOpen(false); },
+    onError: () => toast.error('Failed to save certificate'),
+  });
   const [activeTab, setActiveTab] = useState<'local' | 'ca' | 'remote' | 'csr'>('local');
   const [search, setSearch] = useState('');
   const [showCreateMenu, setShowCreateMenu] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [modalType, setModalType] = useState<'generate' | 'import' | 'csr'>('generate');
   const [selectedCert, setSelectedCert] = useState<Certificate | null>(null);
+
+  // Generate form state
+  const [genForm, setGenForm] = useState({
+    name: '',
+    commonName: '',
+    keyType: 'RSA',
+    validDays: '365',
+  });
+
+  // Import form state
+  const [importForm, setImportForm] = useState({
+    name: '',
+    type: 'local',
+    pemContent: '',
+  });
+  const certFileRef = useState<HTMLInputElement | null>(null);
 
   // CSR Form Data
   const [csrData, setCsrData] = useState({
@@ -165,12 +186,59 @@ const CertificateManagement = () => {
     return Math.floor(diff / (24 * 60 * 60 * 1000));
   };
 
+  const handleGenerateCert = () => {
+    if (!genForm.name || !genForm.commonName) {
+      toast.error('Certificate Name and Common Name are required');
+      return;
+    }
+    const validDays = parseInt(genForm.validDays) || 365;
+    const now = new Date();
+    const expiry = new Date(now.getTime() + validDays * 24 * 60 * 60 * 1000);
+    createMut.mutate({
+      name: genForm.name,
+      type: 'local',
+      subject: `CN=${genForm.commonName}`,
+      issuer: `CN=${genForm.commonName}`,
+      serial_number: Math.random().toString(16).slice(2).toUpperCase().match(/.{2}/g)?.join(':') || 'AA:BB:CC:DD',
+      valid_from: now.toISOString(),
+      valid_to: expiry.toISOString(),
+      status: 'valid',
+      key_type: genForm.keyType,
+      key_size: genForm.keyType === 'RSA' ? 2048 : 256,
+      in_use: false,
+      used_by: [],
+    });
+  };
+
+  const handleImportCert = () => {
+    if (!importForm.name) {
+      toast.error('Certificate Name is required');
+      return;
+    }
+    const now = new Date();
+    const expiry = new Date(now.getTime() + 365 * 24 * 60 * 60 * 1000);
+    createMut.mutate({
+      name: importForm.name,
+      type: importForm.type,
+      subject: `CN=${importForm.name}`,
+      issuer: 'CN=Imported CA',
+      serial_number: Math.random().toString(16).slice(2).toUpperCase().match(/.{2}/g)?.join(':') || 'AA:BB:CC:DD',
+      valid_from: now.toISOString(),
+      valid_to: expiry.toISOString(),
+      status: 'valid',
+      key_type: 'RSA',
+      key_size: 2048,
+      in_use: false,
+      used_by: [],
+    });
+  };
+
   const handleGenerateCSR = () => {
     if (!csrData.commonName) {
       toast.error('Common Name is required');
       return;
     }
-    toast.success('CSR generated successfully');
+    toast.success('CSR generated and pending signature');
     setModalOpen(false);
   };
 
@@ -575,56 +643,81 @@ const CertificateManagement = () => {
             {modalType === 'import' && (
               <>
                 <div>
-                  <label className="forti-label">Certificate Name</label>
-                  <input type="text" className="forti-input w-full" placeholder="My Certificate" />
+                  <label className="forti-label">Certificate Name *</label>
+                  <input
+                    type="text"
+                    className="forti-input w-full"
+                    placeholder="My Certificate"
+                    value={importForm.name}
+                    onChange={(e) => setImportForm({ ...importForm, name: e.target.value })}
+                  />
                 </div>
                 <div>
                   <label className="forti-label">Certificate Type</label>
-                  <select className="forti-select w-full">
-                    <option>Local Certificate</option>
-                    <option>CA Certificate</option>
-                    <option>Remote Certificate</option>
+                  <select
+                    className="forti-select w-full"
+                    value={importForm.type}
+                    onChange={(e) => setImportForm({ ...importForm, type: e.target.value })}
+                  >
+                    <option value="local">Local Certificate</option>
+                    <option value="ca">CA Certificate</option>
+                    <option value="remote">Remote Certificate</option>
                   </select>
                 </div>
                 <div>
                   <label className="forti-label">Certificate File (PEM/CRT)</label>
-                  <div className="border-2 border-dashed border-[#ccc] rounded p-4 text-center">
-                    <Upload className="w-8 h-8 mx-auto text-[#999] mb-2" />
-                    <div className="text-[11px] text-[#666]">Click to upload or drag and drop</div>
-                    <div className="text-[10px] text-[#999]">PEM, CRT, CER files supported</div>
-                  </div>
-                </div>
-                <div>
-                  <label className="forti-label">Private Key (optional)</label>
-                  <div className="border-2 border-dashed border-[#ccc] rounded p-4 text-center">
-                    <Key className="w-8 h-8 mx-auto text-[#999] mb-2" />
-                    <div className="text-[11px] text-[#666]">Upload private key file</div>
-                    <div className="text-[10px] text-[#999]">KEY, PEM files supported</div>
-                  </div>
+                  <textarea
+                    className="forti-input w-full font-mono text-[10px]"
+                    rows={5}
+                    placeholder="-----BEGIN CERTIFICATE-----&#10;...&#10;-----END CERTIFICATE-----"
+                    value={importForm.pemContent}
+                    onChange={(e) => setImportForm({ ...importForm, pemContent: e.target.value })}
+                  />
                 </div>
               </>
             )}
             {modalType === 'generate' && (
               <>
                 <div>
-                  <label className="forti-label">Certificate Name</label>
-                  <input type="text" className="forti-input w-full" placeholder="Self-Signed Certificate" />
+                  <label className="forti-label">Certificate Name *</label>
+                  <input
+                    type="text"
+                    className="forti-input w-full"
+                    placeholder="Self-Signed Certificate"
+                    value={genForm.name}
+                    onChange={(e) => setGenForm({ ...genForm, name: e.target.value })}
+                  />
                 </div>
                 <div>
-                  <label className="forti-label">Common Name (CN)</label>
-                  <input type="text" className="forti-input w-full" placeholder="*.local.lan" />
+                  <label className="forti-label">Common Name (CN) *</label>
+                  <input
+                    type="text"
+                    className="forti-input w-full"
+                    placeholder="*.local.lan"
+                    value={genForm.commonName}
+                    onChange={(e) => setGenForm({ ...genForm, commonName: e.target.value })}
+                  />
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="forti-label">Key Type</label>
-                    <select className="forti-select w-full">
-                      <option>RSA</option>
-                      <option>ECDSA</option>
+                    <select
+                      className="forti-select w-full"
+                      value={genForm.keyType}
+                      onChange={(e) => setGenForm({ ...genForm, keyType: e.target.value })}
+                    >
+                      <option value="RSA">RSA</option>
+                      <option value="ECDSA">ECDSA</option>
                     </select>
                   </div>
                   <div>
                     <label className="forti-label">Validity (days)</label>
-                    <input type="number" className="forti-input w-full" defaultValue="365" />
+                    <input
+                      type="number"
+                      className="forti-input w-full"
+                      value={genForm.validDays}
+                      onChange={(e) => setGenForm({ ...genForm, validDays: e.target.value })}
+                    />
                   </div>
                 </div>
               </>
@@ -634,8 +727,12 @@ const CertificateManagement = () => {
             <button onClick={() => setModalOpen(false)} className="forti-btn forti-btn-secondary">
               Cancel
             </button>
-            <button onClick={() => { toast.success('Operation completed'); setModalOpen(false); }} className="forti-btn forti-btn-primary">
-              {modalType === 'import' ? 'Import' : 'Generate'}
+            <button
+              onClick={modalType === 'import' ? handleImportCert : handleGenerateCert}
+              disabled={createMut.isPending}
+              className="forti-btn forti-btn-primary"
+            >
+              {createMut.isPending ? 'Saving…' : modalType === 'import' ? 'Import' : 'Generate'}
             </button>
           </div>
         </DialogContent>

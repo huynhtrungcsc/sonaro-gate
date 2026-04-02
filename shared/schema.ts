@@ -528,6 +528,21 @@ export const packetCaptures = pgTable('packet_captures', {
   created_at: timestamp('created_at', { withTimezone: true }).notNull().default(now()),
 });
 
+// ── Config Backups ──────────────────────────────────
+export const configBackups = pgTable('config_backups', {
+  id: uuid('id').primaryKey().default(genUuid()),
+  filename: text('filename').notNull(),
+  size_bytes: integer('size_bytes').notNull().default(0),
+  type: text('type').notNull().default('manual'),
+  status: text('status').notNull().default('success'),
+  firmware_version: text('firmware_version').notNull().default('2025.1'),
+  sections: text('sections').array().notNull().default(sql`'{}'::text[]`),
+  notes: text('notes').notNull().default(''),
+  created_by: uuid('created_by'),
+  created_at: timestamp('created_at', { withTimezone: true }).notNull().default(now()),
+});
+export type ConfigBackup = typeof configBackups.$inferSelect;
+
 // ── Insert schemas ──────────────────────────────────
 export const insertUserSchema = createInsertSchema(users).omit({ id: true, created_at: true, updated_at: true });
 export const insertFirewallRuleSchema = createInsertSchema(firewallRules).omit({ id: true, created_at: true, updated_at: true });

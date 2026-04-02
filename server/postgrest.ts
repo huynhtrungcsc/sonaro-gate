@@ -43,6 +43,7 @@ const TABLE_MAP: Record<string, any> = {
   traffic_stats: schema.trafficStats,
   ai_analysis: schema.aiAnalysis,
   packet_captures: schema.packetCaptures,
+  config_backups: schema.configBackups,
   users: schema.users,
   user_roles: schema.userRoles,
 };

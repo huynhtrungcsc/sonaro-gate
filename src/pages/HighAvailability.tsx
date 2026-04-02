@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useInterfaces } from '@/hooks/useDashboardData';
 import { Shell } from '@/components/layout/Shell';
 import { cn } from '@/lib/utils';
@@ -21,6 +21,9 @@ import {
   Upload
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useSystemSettings } from '@/hooks/useDbData';
+import { systemSettingsApi } from '@/lib/api';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -76,7 +79,10 @@ const mockClusterMembers: ClusterMember[] = [
 ];
 
 const HighAvailability = () => {
-  const [haEnabled, setHaEnabled] = useState(true);
+  const queryClient = useQueryClient();
+  const { data: dbSettings = [] } = useSystemSettings();
+
+  const [haEnabled, setHaEnabled] = useState(false);
   const [haMode, setHaMode] = useState<'active-passive' | 'active-active'>('active-passive');
   const [members, setMembers] = useState<ClusterMember[]>([]);
   const [activeTab, setActiveTab] = useState<'status' | 'settings' | 'history'>('status');
@@ -93,13 +99,68 @@ const HighAvailability = () => {
   // HA Settings
   const [groupName, setGroupName] = useState('SONARO-HA-CLUSTER');
   const [groupId, setGroupId] = useState('1');
-  const [password, setPassword] = useState('********');
-  const [heartbeatInterface, setHeartbeatInterface] = useState('port5');
+  const [password, setPassword] = useState('');
+  const [heartbeatInterface, setHeartbeatInterface] = useState('');
   const [monitorInterfaces, setMonitorInterfaces] = useState<string[]>([]);
   const ifacesQuery = useInterfaces();
   const [sessionPickup, setSessionPickup] = useState(true);
   const [overrideEnabled, setOverrideEnabled] = useState(false);
   const [pingServer, setPingServer] = useState('8.8.8.8');
+
+  // Load HA settings from DB
+  useEffect(() => {
+    if (!dbSettings || (dbSettings as any[]).length === 0) return;
+    const get = (key: string) => (dbSettings as any[]).find((s: any) => s.key === key)?.value;
+    const haEnabledVal = get('ha_enabled');
+    if (haEnabledVal !== undefined) setHaEnabled(haEnabledVal === 'true');
+    const haModeVal = get('ha_mode');
+    if (haModeVal) setHaMode(haModeVal as any);
+    const grpName = get('ha_group_name');
+    if (grpName) setGroupName(grpName);
+    const grpId = get('ha_group_id');
+    if (grpId) setGroupId(grpId);
+    const hbIface = get('ha_heartbeat_interface');
+    if (hbIface) setHeartbeatInterface(hbIface);
+    const sessPickup = get('ha_session_pickup');
+    if (sessPickup !== undefined) setSessionPickup(sessPickup === 'true');
+    const override = get('ha_override');
+    if (override !== undefined) setOverrideEnabled(override === 'true');
+    const ping = get('ha_ping_server');
+    if (ping) setPingServer(ping);
+    const membersRaw = get('ha_members');
+    if (membersRaw) {
+      try {
+        const parsed = JSON.parse(membersRaw);
+        if (Array.isArray(parsed)) setMembers(parsed.map((m: any) => ({ ...m, lastSync: new Date(m.lastSync || Date.now()) })));
+      } catch { /* ignore */ }
+    }
+  }, [dbSettings]);
+
+  const persistMembers = async (membersList: ClusterMember[]) => {
+    await systemSettingsApi.upsert('ha_members', JSON.stringify(membersList.map(m => ({ ...m, lastSync: m.lastSync instanceof Date ? m.lastSync.toISOString() : m.lastSync }))));
+    queryClient.invalidateQueries({ queryKey: ['system-settings'] });
+  };
+
+  const saveSettingsMut = useMutation({
+    mutationFn: async () => {
+      const settings: [string, string][] = [
+        ['ha_enabled', String(haEnabled)],
+        ['ha_mode', haMode],
+        ['ha_group_name', groupName],
+        ['ha_group_id', groupId],
+        ['ha_heartbeat_interface', heartbeatInterface],
+        ['ha_session_pickup', String(sessionPickup)],
+        ['ha_override', String(overrideEnabled)],
+        ['ha_ping_server', pingServer],
+      ];
+      for (const [key, value] of settings) {
+        await systemSettingsApi.upsert(key, value);
+      }
+      await persistMembers(members);
+    },
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['system-settings'] }); toast.success('HA settings saved'); },
+    onError: () => toast.error('Failed to save HA settings'),
+  });
 
   
 
@@ -145,34 +206,31 @@ const HighAvailability = () => {
     setShowMemberModal(true);
   };
 
-  const handleSaveMember = () => {
+  const handleSaveMember = async () => {
     if (!memberForm.hostname || !memberForm.serialNumber) {
       toast.error('Hostname and Serial Number are required');
       return;
     }
-
+    let updated: ClusterMember[];
     if (editingMember) {
-      setMembers(prev => prev.map(m => 
-        m.id === editingMember.id ? { ...m, ...memberForm } as ClusterMember : m
-      ));
+      updated = members.map(m => m.id === editingMember.id ? { ...m, ...memberForm } as ClusterMember : m);
       toast.success('Cluster member updated');
     } else {
       const newMember: ClusterMember = {
-        id: Date.now().toString(),
+        id: crypto.randomUUID(),
         hostname: memberForm.hostname!,
         role: memberForm.role || 'secondary',
         status: 'passive',
         priority: memberForm.priority || 100,
         serialNumber: memberForm.serialNumber!,
-        uptime: 0,
-        cpu: 0,
-        memory: 0,
-        sessions: 0,
+        uptime: 0, cpu: 0, memory: 0, sessions: 0,
         lastSync: new Date(),
       };
-      setMembers(prev => [...prev, newMember]);
+      updated = [...members, newMember];
       toast.success('Cluster member added');
     }
+    setMembers(updated);
+    await persistMembers(updated);
     setShowMemberModal(false);
   };
 
@@ -181,9 +239,11 @@ const HighAvailability = () => {
     setDeleteConfirmOpen(true);
   };
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (memberToDelete) {
-      setMembers(prev => prev.filter(m => m.id !== memberToDelete));
+      const updated = members.filter(m => m.id !== memberToDelete);
+      setMembers(updated);
+      await persistMembers(updated);
       toast.success('Cluster member removed');
     }
     setDeleteConfirmOpen(false);
@@ -596,9 +656,9 @@ const HighAvailability = () => {
 
             {/* Save Button */}
             <div className="flex justify-end gap-2">
-              <button className="forti-btn forti-btn-secondary">Cancel</button>
-              <button className="forti-btn forti-btn-primary" onClick={() => toast.success('HA settings saved')}>
-                Save Changes
+              <button className="forti-btn forti-btn-secondary" onClick={() => queryClient.invalidateQueries({ queryKey: ['system-settings'] })}>Cancel</button>
+              <button className="forti-btn forti-btn-primary" onClick={() => saveSettingsMut.mutate()} disabled={saveSettingsMut.isPending}>
+                {saveSettingsMut.isPending ? 'Saving…' : 'Save Changes'}
               </button>
             </div>
           </div>

@@ -19,6 +19,14 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 
+const notifKeys = [
+  'notif_critical_alerts',
+  'notif_health_warnings',
+  'notif_daily_summary',
+  'notif_config_changes',
+  'notif_vpn_events',
+];
+
 const SystemSettings = () => {
   const queryClient = useQueryClient();
   const { data: dbSettings = [] } = useSystemSettings();
@@ -36,6 +44,14 @@ const SystemSettings = () => {
   const [sessionTimeout, setSessionTimeout] = useState('30');
   const [activeTab, setActiveTab] = useState<'general' | 'network' | 'admin' | 'notifications'>('general');
 
+  const [notifications, setNotifications] = useState([
+    { label: 'Critical Security Alerts', enabled: true },
+    { label: 'System Health Warnings', enabled: true },
+    { label: 'Daily Summary Reports', enabled: false },
+    { label: 'Configuration Changes', enabled: true },
+    { label: 'VPN Connection Events', enabled: false },
+  ]);
+
   useEffect(() => {
     if (!dbSettings || (dbSettings as any[]).length === 0) return;
     const get = (key: string) => (dbSettings as any[]).find((s: any) => s.key === key)?.value;
@@ -51,17 +67,26 @@ const SystemSettings = () => {
     if (get('ssh_enabled')) setSshEnabled(get('ssh_enabled') === 'true');
     if (get('ssh_port')) setSshPort(get('ssh_port'));
     if (get('session_timeout')) setSessionTimeout(get('session_timeout'));
+    // Load notification settings
+    setNotifications(prev => prev.map((n, i) => {
+      const val = get(notifKeys[i]);
+      return val !== undefined ? { ...n, enabled: val === 'true' } : n;
+    }));
   }, [dbSettings]);
 
   const saveMut = useMutation({
     mutationFn: async () => {
-      const settings = [
+      const settings: [string, string][] = [
         ['hostname', hostname], ['domain', domain], ['timezone', timezone],
         ['ntp_server', ntpServer], ['dns_servers', dnsServers], ['auto_update', String(autoUpdate)],
         ['syslog_enabled', String(syslogEnabled)], ['syslog_server', syslogServer],
         ['webgui_port', webGuiPort], ['ssh_enabled', String(sshEnabled)],
         ['ssh_port', sshPort], ['session_timeout', sessionTimeout],
       ];
+      // Include notification settings
+      notifications.forEach((n, i) => {
+        settings.push([notifKeys[i], String(n.enabled)]);
+      });
       for (const [key, value] of settings) {
         await systemSettingsApi.upsert(key, value);
       }
@@ -75,16 +100,6 @@ const SystemSettings = () => {
   const handleReboot = () => {
     toast.success('System reboot scheduled');
   };
-
-  const notificationSettings = [
-    { label: 'Critical Security Alerts', enabled: true },
-    { label: 'System Health Warnings', enabled: true },
-    { label: 'Daily Summary Reports', enabled: false },
-    { label: 'Configuration Changes', enabled: true },
-    { label: 'VPN Connection Events', enabled: false },
-  ];
-
-  const [notifications, setNotifications] = useState(notificationSettings);
 
   const toggleNotification = (index: number) => {
     setNotifications(prev => prev.map((n, i) => 
