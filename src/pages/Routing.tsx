@@ -43,7 +43,7 @@ const mockRoutes: Route[] = [
 ];
 
 const Routing = () => {
-  const [routes, setRoutes] = useState<Route[]>([]);
+  const [routes, setRoutes] = useState<Route[]>(mockRoutes);
   const [modalOpen, setModalOpen] = useState(false);
   const [editingRoute, setEditingRoute] = useState<Route | null>(null);
   const [filter, setFilter] = useState<'all' | 'static' | 'connected'>('all');
@@ -187,7 +187,7 @@ const Routing = () => {
             Delete
           </button>
           <div className="forti-toolbar-separator" />
-          <button className="forti-toolbar-btn" onClick={() => { setRoutes([]); toast.success('Routing table refreshed'); }}>
+          <button className="forti-toolbar-btn" onClick={() => { setRoutes(mockRoutes); toast.success('Routing table refreshed'); }}>
             <RefreshCw className="w-3 h-3" />
             Refresh
           </button>

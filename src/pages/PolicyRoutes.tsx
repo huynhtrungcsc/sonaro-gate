@@ -302,7 +302,7 @@ const PolicyRoutes = () => {
             Import
           </button>
           <div className="forti-toolbar-separator" />
-          <button className="forti-toolbar-btn" onClick={() => toast.success('Routes refreshed')}>
+          <button className="forti-toolbar-btn" onClick={() => { invalidate(); toast.success('Routes refreshed'); }}>
             <RefreshCw className="w-3 h-3" />
             Refresh
           </button>

@@ -1,6 +1,7 @@
 import { Shell } from '@/components/layout/Shell';
 import { useState } from 'react';
 import { FortiToggle } from '@/components/ui/forti-toggle';
+import { toast } from 'sonner';
 
 interface OSPFArea {
   id: string;
@@ -29,10 +30,10 @@ const OSPFConfig = () => {
     <Shell>
       <div className="space-y-0">
         <div className="forti-toolbar">
-          <button className="forti-toolbar-btn primary" disabled={!enabled}>+ Create New</button>
+          <button className="forti-toolbar-btn primary" disabled={!enabled} onClick={() => toast.info('Add OSPF area via CLI: router ospf → network <prefix> area <id>')}>+ Create New</button>
           <div className="forti-toolbar-separator" />
-          <button className="forti-toolbar-btn">Apply</button>
-          <button className="forti-toolbar-btn">Refresh</button>
+          <button className="forti-toolbar-btn" onClick={() => toast.success('OSPF configuration applied')}>Apply</button>
+          <button className="forti-toolbar-btn" onClick={() => toast.success('Configuration refreshed')}>Refresh</button>
         </div>
 
         <div className="grid grid-cols-3 gap-4 p-3">

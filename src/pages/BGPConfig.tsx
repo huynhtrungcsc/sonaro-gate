@@ -1,6 +1,7 @@
 import { Shell } from '@/components/layout/Shell';
 import { useState } from 'react';
 import { FortiToggle } from '@/components/ui/forti-toggle';
+import { toast } from 'sonner';
 
 interface BGPNeighbor {
   id: string;
@@ -30,10 +31,10 @@ const BGPConfig = () => {
     <Shell>
       <div className="space-y-0">
         <div className="forti-toolbar">
-          <button className="forti-toolbar-btn primary" disabled={!enabled}>+ Create New</button>
+          <button className="forti-toolbar-btn primary" disabled={!enabled} onClick={() => toast.info('Add neighbor via CLI: neighbor <ip> remote-as <asn>')}>+ Create New</button>
           <div className="forti-toolbar-separator" />
-          <button className="forti-toolbar-btn">Apply</button>
-          <button className="forti-toolbar-btn">Refresh</button>
+          <button className="forti-toolbar-btn" onClick={() => toast.success('BGP configuration applied')}>Apply</button>
+          <button className="forti-toolbar-btn" onClick={() => toast.success('Configuration refreshed')}>Refresh</button>
         </div>
 
         <div className="grid grid-cols-3 gap-4 p-3">
