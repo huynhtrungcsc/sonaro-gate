@@ -8,25 +8,14 @@ import { useState, useEffect } from 'react';
 import { Shell } from '@/components/layout/Shell';
 import { mfaApi } from '@/lib/postgrest';
 import { useAuth } from '@/contexts/AuthContext';
-import { ShieldCheck, ShieldOff, Smartphone, Copy, Eye, EyeOff, CheckCircle2, AlertCircle, Lock, KeyRound } from 'lucide-react';
+import {
+  ShieldCheck, ShieldOff, Smartphone, Copy,
+  Eye, EyeOff, CheckCircle, AlertTriangle, Lock, Key,
+  ChevronLeft, TriangleAlert,
+} from 'lucide-react';
 import { toast } from 'sonner';
 
 type MfaView = 'status' | 'setup-qr' | 'setup-verify' | 'disable';
-
-const C = {
-  surface:   '#161b22',
-  surfaceHdr: '#0d1117',
-  border:    '#21262d',
-  borderFocus: '#3fb950',
-  textPrimary: '#e6edf3',
-  textSub:   '#7d8590',
-  textMuted: '#484f58',
-  greenAccent: '#3fb950',
-  green:     '#1c6e30',
-  greenHover: '#217a36',
-  red:       '#b91c1c',
-  pageBg:    '#0d1117',
-};
 
 export default function AccountSecurity() {
   const { user, session } = useAuth();
@@ -37,15 +26,12 @@ export default function AccountSecurity() {
   const [qrData, setQrData]         = useState<{ secret: string; qr: string } | null>(null);
   const [showSecret, setShowSecret] = useState(false);
   const [setupCode, setSetupCode]   = useState('');
-  const [setupFocus, setSetupFocus] = useState(false);
   const [setupLoading, setSetupLoading] = useState(false);
 
-  const [disablePass, setDisablePass]     = useState('');
-  const [disableFocus, setDisableFocus]   = useState(false);
-  const [showDisablePass, setShowDisablePass] = useState(false);
-  const [disableLoading, setDisableLoading] = useState(false);
+  const [disablePass, setDisablePass]           = useState('');
+  const [showDisablePass, setShowDisablePass]   = useState(false);
+  const [disableLoading, setDisableLoading]     = useState(false);
 
-  // ── Change Password state ────────────────────────
   const [cpCurrent, setCpCurrent]         = useState('');
   const [cpNew, setCpNew]                 = useState('');
   const [cpConfirm, setCpConfirm]         = useState('');
@@ -53,8 +39,6 @@ export default function AccountSecurity() {
   const [showCpCurrent, setShowCpCurrent] = useState(false);
   const [showCpNew, setShowCpNew]         = useState(false);
   const [showCpConfirm, setShowCpConfirm] = useState(false);
-  const [cpFocus, setCpFocus]             = useState<Record<string, boolean>>({});
-  const setFocus = (k: string, v: boolean) => setCpFocus(f => ({ ...f, [k]: v }));
 
   const isMock = !session?.token || session.token === 'mock-jwt-token';
 
@@ -124,178 +108,346 @@ export default function AccountSecurity() {
     setCpLoading(true);
     const result = await mfaApi.changePassword(cpCurrent, cpNew);
     setCpLoading(false);
-    if (!result.success) {
-      toast.error(result.error || 'Failed to change password.');
-      return;
-    }
-    toast.success('Password changed successfully. Please log in again with your new password.');
+    if (!result.success) { toast.error(result.error || 'Failed to change password.'); return; }
+    toast.success('Password changed successfully.');
     setCpCurrent(''); setCpNew(''); setCpConfirm('');
   };
 
-  const inputStyle = (focus: boolean): React.CSSProperties => ({
-    width: '100%', boxSizing: 'border-box',
-    padding: '10px 12px 10px 38px',
-    fontSize: 13, color: C.textPrimary,
-    background: C.pageBg,
-    border: `1px solid ${focus ? C.borderFocus : C.border}`,
-    borderRadius: 5, outline: 'none',
-    transition: 'border-color 0.15s',
-  });
+  const pwStrength = cpNew.length === 0 ? 0 : cpNew.length < 8 ? 1 : cpNew.length < 12 ? 2 : 3;
+  const pwStrengthLabel = ['', 'Too short', 'Fair', 'Strong'];
+  const pwStrengthColor = ['', '#d97706', '#2563eb', '#16a34a'];
 
   return (
     <Shell>
-      <div style={{ maxWidth: 560, margin: '32px auto', padding: '0 16px' }}>
+      <div className="space-y-0">
 
-        {/* ── Header ─────────────────────────────────────── */}
-        <div style={{ marginBottom: 28 }}>
-          <h2 style={{ fontSize: 18, fontWeight: 700, color: C.textPrimary, margin: 0 }}>Account Security</h2>
-          <p style={{ fontSize: 12, color: C.textSub, marginTop: 4 }}>
-            Manage two-factor authentication for{' '}
-            <span style={{ color: C.textPrimary }}>{user?.email}</span>
-          </p>
+        {/* ── Page Header ─────────────────────────────────── */}
+        <div className="section-header-neutral">
+          <div className="flex items-center gap-2">
+            <ShieldCheck size={13} />
+            <span className="font-semibold">Account Security</span>
+            <span className="text-[10px] text-[#888]">—</span>
+            <span className="text-[10px] text-[#666] font-normal">{user?.email}</span>
+          </div>
         </div>
 
-        {isMock && (
-          <div style={{ background: '#1c2030', border: `1px solid #334155`, borderRadius: 8, padding: '12px 16px', marginBottom: 20, display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-            <AlertCircle style={{ width: 14, height: 14, color: '#f59e0b', flexShrink: 0, marginTop: 1 }} />
-            <p style={{ fontSize: 12, color: '#94a3b8', margin: 0 }}>
-              Running in demo mode. MFA setup requires a real database. Connect a PostgreSQL instance to enable this feature.
-            </p>
-          </div>
-        )}
+        {/* ── Toolbar ──────────────────────────────────────── */}
+        <div className="forti-toolbar">
+          {view !== 'status' && (
+            <button className="forti-toolbar-btn" onClick={() => { setView('status'); setQrData(null); setDisablePass(''); }}>
+              <ChevronLeft size={12} />
+              <span>Back</span>
+            </button>
+          )}
+          <div className="flex-1" />
+          <span className="text-[10px] text-[#888] pr-2">
+            {view === 'status' && 'Account Security Settings'}
+            {view === 'setup-qr' && 'Step 1 of 2 — Scan QR Code'}
+            {view === 'setup-verify' && 'Step 2 of 2 — Verify Code'}
+            {view === 'disable' && 'Disable Two-Factor Authentication'}
+          </span>
+        </div>
 
-        {/* ── Status card ─────────────────────────────────── */}
-        {view === 'status' && (
-          <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, overflow: 'hidden' }}>
-            <div style={{ padding: '16px 24px', borderBottom: `1px solid ${C.border}`, background: C.surfaceHdr }}>
-              <p style={{ fontSize: 13, fontWeight: 700, color: C.textPrimary, margin: 0 }}>Two-Factor Authentication (TOTP)</p>
-              <p style={{ fontSize: 11, color: C.textSub, margin: '3px 0 0' }}>
-                Use an authenticator app (Google Authenticator, Authy, 1Password) to generate time-based codes.
-              </p>
+        <div className="p-4 space-y-3">
+
+          {/* ── Demo mode banner ───────────────────────────── */}
+          {isMock && (
+            <div className="flex items-start gap-2 px-3 py-2 bg-[#fffbeb] border border-[#fbbf24] text-[11px]">
+              <TriangleAlert size={12} className="text-[#d97706] mt-0.5 shrink-0" />
+              <span className="text-[#92400e]">
+                Demo mode — MFA and password change require a real PostgreSQL connection.
+              </span>
             </div>
+          )}
 
-            <div style={{ padding: '20px 24px' }}>
-              {loading ? (
-                <p style={{ fontSize: 12, color: C.textSub }}>Loading…</p>
-              ) : (
-                <>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
-                    <div style={{
-                      width: 40, height: 40, borderRadius: 8,
-                      background: mfaEnabled ? 'rgba(63,185,80,0.1)' : 'rgba(255,255,255,0.04)',
-                      border: `1px solid ${mfaEnabled ? 'rgba(63,185,80,0.3)' : C.border}`,
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    }}>
-                      {mfaEnabled
-                        ? <ShieldCheck style={{ width: 18, height: 18, color: C.greenAccent }} />
-                        : <ShieldOff style={{ width: 18, height: 18, color: C.textMuted }} />}
+          {/* ════════════════════════════════════════════════
+              VIEW: STATUS
+          ════════════════════════════════════════════════ */}
+          {view === 'status' && (
+            <>
+              {/* MFA Card */}
+              <div className="bg-white border border-[#ddd]">
+                <div className="section-header-neutral">
+                  <div className="flex items-center gap-1.5">
+                    <ShieldCheck size={12} />
+                    <span>Two-Factor Authentication (TOTP)</span>
+                  </div>
+                </div>
+
+                <div className="p-3">
+                  {loading ? (
+                    <p className="text-[11px] text-[#999] py-2">Loading…</p>
+                  ) : (
+                    <table className="w-full text-[11px]">
+                      <tbody>
+                        <tr className="border-b border-[#eee]">
+                          <td className="py-2 pr-4 text-[#666] w-40">Status</td>
+                          <td className="py-2">
+                            {mfaEnabled ? (
+                              <span className="inline-flex items-center gap-1.5 text-[#16a34a] font-semibold">
+                                <ShieldCheck size={12} />
+                                Enabled
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1.5 text-[#6b7280]">
+                                <ShieldOff size={12} />
+                                Disabled
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                        <tr className="border-b border-[#eee]">
+                          <td className="py-2 pr-4 text-[#666]">Method</td>
+                          <td className="py-2 text-[#333]">
+                            <span className="inline-flex items-center gap-1.5">
+                              <Smartphone size={11} />
+                              Time-based OTP (TOTP)
+                            </span>
+                          </td>
+                        </tr>
+                        <tr>
+                          <td className="py-2 pr-4 text-[#666]">Compatible Apps</td>
+                          <td className="py-2 text-[#555]">Google Authenticator, Authy, 1Password, Bitwarden</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  )}
+
+                  {!loading && (
+                    <div className="flex items-center gap-2 mt-3 pt-3 border-t border-[#eee]">
+                      {mfaEnabled ? (
+                        <>
+                          <span className="flex items-center gap-1.5 text-[11px] text-[#16a34a] flex-1">
+                            <CheckCircle size={11} />
+                            Your account is protected with two-factor authentication.
+                          </span>
+                          <button
+                            data-testid="button-mfa-disable-start"
+                            disabled={isMock}
+                            onClick={() => { setView('disable'); setDisablePass(''); }}
+                            className="forti-toolbar-btn text-red-700 border-red-300 hover:bg-red-50"
+                          >
+                            <ShieldOff size={11} />
+                            <span>Disable MFA</span>
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <span className="text-[11px] text-[#888] flex-1">
+                            No second factor is required at login.
+                          </span>
+                          <button
+                            data-testid="button-mfa-enable-start"
+                            disabled={isMock || setupLoading}
+                            onClick={handleSetup}
+                            className="forti-toolbar-btn primary"
+                          >
+                            <Smartphone size={11} />
+                            <span>{setupLoading ? 'Generating…' : 'Set Up Two-Factor Authentication'}</span>
+                          </button>
+                        </>
+                      )}
                     </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Change Password Card */}
+              <div className="bg-white border border-[#ddd]">
+                <div className="section-header-neutral">
+                  <div className="flex items-center gap-1.5">
+                    <Key size={12} />
+                    <span>Change Password</span>
+                  </div>
+                </div>
+
+                <form onSubmit={handleChangePassword} className="p-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    {/* Current password */}
+                    <div className="col-span-2">
+                      <label className="block text-[10px] font-semibold text-[#555] uppercase tracking-wide mb-1">
+                        Current Password
+                      </label>
+                      <div className="relative">
+                        <Lock size={11} className="absolute left-2 top-1/2 -translate-y-1/2 text-[#aaa] pointer-events-none" />
+                        <input
+                          data-testid="input-cp-current"
+                          type={showCpCurrent ? 'text' : 'password'}
+                          value={cpCurrent}
+                          onChange={e => setCpCurrent(e.target.value)}
+                          placeholder="Enter current password"
+                          autoComplete="current-password"
+                          disabled={isMock}
+                          className="forti-input w-full pl-7 pr-7"
+                        />
+                        <button type="button" onClick={() => setShowCpCurrent(v => !v)} tabIndex={-1}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 text-[#aaa] hover:text-[#555] bg-transparent border-0 cursor-pointer p-0">
+                          {showCpCurrent ? <EyeOff size={11} /> : <Eye size={11} />}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* New password */}
                     <div>
-                      <p style={{ fontSize: 13, fontWeight: 600, color: C.textPrimary, margin: 0 }}>
-                        {mfaEnabled ? 'Enabled' : 'Disabled'}
-                      </p>
-                      <p style={{ fontSize: 11, color: C.textSub, margin: '2px 0 0' }}>
-                        {mfaEnabled ? 'Your account requires a code at every login.' : 'No second factor is required at login.'}
-                      </p>
+                      <label className="block text-[10px] font-semibold text-[#555] uppercase tracking-wide mb-1">
+                        New Password
+                      </label>
+                      <div className="relative">
+                        <Lock size={11} className="absolute left-2 top-1/2 -translate-y-1/2 text-[#aaa] pointer-events-none" />
+                        <input
+                          data-testid="input-cp-new"
+                          type={showCpNew ? 'text' : 'password'}
+                          value={cpNew}
+                          onChange={e => setCpNew(e.target.value)}
+                          placeholder="Min 8 characters"
+                          autoComplete="new-password"
+                          disabled={isMock}
+                          className="forti-input w-full pl-7 pr-7"
+                        />
+                        <button type="button" onClick={() => setShowCpNew(v => !v)} tabIndex={-1}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 text-[#aaa] hover:text-[#555] bg-transparent border-0 cursor-pointer p-0">
+                          {showCpNew ? <EyeOff size={11} /> : <Eye size={11} />}
+                        </button>
+                      </div>
+                      {cpNew.length > 0 && (
+                        <div className="mt-1 flex items-center gap-1.5">
+                          <div className="flex gap-0.5">
+                            {[1, 2, 3].map(i => (
+                              <div key={i} style={{ width: 24, height: 3, borderRadius: 1, background: pwStrength >= i ? pwStrengthColor[pwStrength] : '#ddd' }} />
+                            ))}
+                          </div>
+                          <span style={{ fontSize: 10, color: pwStrengthColor[pwStrength] }}>{pwStrengthLabel[pwStrength]}</span>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Confirm */}
+                    <div>
+                      <label className="block text-[10px] font-semibold text-[#555] uppercase tracking-wide mb-1">
+                        Confirm New Password
+                      </label>
+                      <div className="relative">
+                        <Lock size={11} className="absolute left-2 top-1/2 -translate-y-1/2 text-[#aaa] pointer-events-none" />
+                        <input
+                          data-testid="input-cp-confirm"
+                          type={showCpConfirm ? 'text' : 'password'}
+                          value={cpConfirm}
+                          onChange={e => setCpConfirm(e.target.value)}
+                          placeholder="Repeat new password"
+                          autoComplete="new-password"
+                          disabled={isMock}
+                          className={`forti-input w-full pl-7 pr-7 ${cpConfirm && cpConfirm !== cpNew ? 'border-red-400 focus:border-red-500' : ''}`}
+                        />
+                        <button type="button" onClick={() => setShowCpConfirm(v => !v)} tabIndex={-1}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 text-[#aaa] hover:text-[#555] bg-transparent border-0 cursor-pointer p-0">
+                          {showCpConfirm ? <EyeOff size={11} /> : <Eye size={11} />}
+                        </button>
+                      </div>
+                      {cpConfirm && cpConfirm !== cpNew && (
+                        <p className="text-[10px] text-red-500 mt-1">Passwords do not match</p>
+                      )}
+                      {cpConfirm && cpConfirm === cpNew && cpNew.length >= 8 && (
+                        <p className="text-[10px] text-green-600 mt-1 flex items-center gap-1">
+                          <CheckCircle size={10} /> Passwords match
+                        </p>
+                      )}
                     </div>
                   </div>
 
-                  {mfaEnabled ? (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', borderRadius: 6, background: 'rgba(63,185,80,0.06)', border: '1px solid rgba(63,185,80,0.2)' }}>
-                        <CheckCircle2 style={{ width: 13, height: 13, color: C.greenAccent, flexShrink: 0 }} />
-                        <span style={{ fontSize: 12, color: C.textSub }}>Your account is protected with TOTP two-factor authentication.</span>
+                  <div className="flex items-center gap-2 mt-3 pt-3 border-t border-[#eee]">
+                    <button
+                      data-testid="button-change-password-submit"
+                      type="submit"
+                      disabled={isMock || cpLoading || !cpCurrent || cpNew.length < 8 || cpNew !== cpConfirm}
+                      className="forti-toolbar-btn primary"
+                    >
+                      <Key size={11} />
+                      <span>{cpLoading ? 'Changing…' : 'Apply New Password'}</span>
+                    </button>
+                    <button type="button" className="forti-toolbar-btn" onClick={() => { setCpCurrent(''); setCpNew(''); setCpConfirm(''); }}>
+                      Cancel
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </>
+          )}
+
+          {/* ════════════════════════════════════════════════
+              VIEW: SETUP — QR
+          ════════════════════════════════════════════════ */}
+          {view === 'setup-qr' && qrData && (
+            <div className="bg-white border border-[#ddd]">
+              <div className="section-header-neutral">
+                <div className="flex items-center gap-1.5">
+                  <Smartphone size={12} />
+                  <span>Step 1 of 2 — Scan QR Code</span>
+                </div>
+              </div>
+              <div className="p-4">
+                <div className="flex gap-6 items-start">
+                  {/* QR code */}
+                  <div className="shrink-0 p-2 border border-[#ddd] bg-white">
+                    <img src={qrData.qr} alt="TOTP QR Code" width={160} height={160} />
+                  </div>
+
+                  <div className="flex-1 space-y-3">
+                    <p className="text-[11px] text-[#555]">
+                      Open your authenticator app (Google Authenticator, Authy, or 1Password) and scan the QR code on the left.
+                    </p>
+
+                    <div>
+                      <p className="text-[10px] font-semibold text-[#555] uppercase tracking-wide mb-1">Manual Entry Key</p>
+                      <div className="flex items-center gap-1 bg-[#f5f5f5] border border-[#ddd] px-2 py-1.5">
+                        <code className="flex-1 text-[11px] font-mono text-[#333] tracking-widest break-all">
+                          {showSecret ? qrData.secret : qrData.secret.replace(/./g, '•')}
+                        </code>
+                        <button type="button" onClick={() => setShowSecret(v => !v)} className="forti-toolbar-btn px-1.5 py-0.5">
+                          {showSecret ? <EyeOff size={11} /> : <Eye size={11} />}
+                        </button>
+                        <button type="button" onClick={copySecret} className="forti-toolbar-btn px-1.5 py-0.5">
+                          <Copy size={11} />
+                        </button>
                       </div>
+                    </div>
+
+                    <div className="flex gap-2 pt-1">
                       <button
-                        data-testid="button-mfa-disable-start"
-                        disabled={isMock}
-                        onClick={() => { setView('disable'); setDisablePass(''); }}
-                        style={{ alignSelf: 'flex-start', padding: '8px 16px', fontSize: 12, fontWeight: 600, color: '#fff', background: C.red, border: `1px solid ${C.red}`, borderRadius: 5, cursor: isMock ? 'not-allowed' : 'pointer', opacity: isMock ? 0.5 : 1 }}
+                        onClick={() => setView('setup-verify')}
+                        className="forti-toolbar-btn primary"
                       >
-                        Disable MFA
+                        <CheckCircle size={11} />
+                        <span>I've Scanned It — Continue</span>
+                      </button>
+                      <button onClick={() => { setView('status'); setQrData(null); }} className="forti-toolbar-btn">
+                        Cancel
                       </button>
                     </div>
-                  ) : (
-                    <button
-                      data-testid="button-mfa-enable-start"
-                      disabled={isMock || setupLoading}
-                      onClick={handleSetup}
-                      style={{ padding: '9px 18px', fontSize: 12, fontWeight: 700, color: '#fff', background: C.green, border: `1px solid ${C.green}`, borderRadius: 5, cursor: (isMock || setupLoading) ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 7, opacity: isMock ? 0.5 : 1 }}
-                    >
-                      <Smartphone style={{ width: 13, height: 13 }} />
-                      {setupLoading ? 'Generating…' : 'Set Up Two-Factor Authentication'}
-                    </button>
-                  )}
-                </>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* ── Setup: QR code ──────────────────────────────── */}
-        {view === 'setup-qr' && qrData && (
-          <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, overflow: 'hidden' }}>
-            <div style={{ padding: '16px 24px', borderBottom: `1px solid ${C.border}`, background: C.surfaceHdr }}>
-              <p style={{ fontSize: 13, fontWeight: 700, color: C.textPrimary, margin: 0 }}>Step 1 — Scan QR Code</p>
-              <p style={{ fontSize: 11, color: C.textSub, margin: '3px 0 0' }}>Open your authenticator app and scan this QR code.</p>
-            </div>
-            <div style={{ padding: '24px' }}>
-
-              <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 20 }}>
-                <div style={{ padding: 12, background: '#ffffff', borderRadius: 8, border: `1px solid ${C.border}` }}>
-                  <img src={qrData.qr} alt="TOTP QR Code" width={180} height={180} />
+                  </div>
                 </div>
               </div>
+            </div>
+          )}
 
-              <div style={{ marginBottom: 20 }}>
-                <p style={{ fontSize: 11, color: C.textSub, marginBottom: 8 }}>
-                  Can't scan? Enter this secret key manually:
+          {/* ════════════════════════════════════════════════
+              VIEW: SETUP — VERIFY
+          ════════════════════════════════════════════════ */}
+          {view === 'setup-verify' && (
+            <div className="bg-white border border-[#ddd]">
+              <div className="section-header-neutral">
+                <div className="flex items-center gap-1.5">
+                  <ShieldCheck size={12} />
+                  <span>Step 2 of 2 — Verify Authentication Code</span>
+                </div>
+              </div>
+              <form onSubmit={handleConfirm} className="p-4 max-w-sm">
+                <p className="text-[11px] text-[#555] mb-3">
+                  Enter the 6-digit code displayed in your authenticator app to confirm setup.
                 </p>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: C.pageBg, border: `1px solid ${C.border}`, borderRadius: 6, padding: '8px 12px' }}>
-                  <code style={{ flex: 1, fontSize: 12, letterSpacing: '0.1em', color: C.textPrimary, fontFamily: 'monospace', wordBreak: 'break-all' }}>
-                    {showSecret ? qrData.secret : qrData.secret.replace(/./g, '•')}
-                  </code>
-                  <button type="button" onClick={() => setShowSecret(v => !v)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.textMuted, padding: 4 }}>
-                    {showSecret ? <EyeOff style={{ width: 14, height: 14 }} /> : <Eye style={{ width: 14, height: 14 }} />}
-                  </button>
-                  <button type="button" onClick={copySecret} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.textMuted, padding: 4 }}>
-                    <Copy style={{ width: 14, height: 14 }} />
-                  </button>
-                </div>
-              </div>
-
-              <div style={{ display: 'flex', gap: 10 }}>
-                <button
-                  onClick={() => setView('setup-verify')}
-                  style={{ flex: 1, padding: '10px 16px', fontSize: 12, fontWeight: 700, color: '#fff', background: C.green, border: `1px solid ${C.green}`, borderRadius: 5, cursor: 'pointer' }}
-                >
-                  I've scanned it — Continue
-                </button>
-                <button
-                  onClick={() => { setView('status'); setQrData(null); }}
-                  style={{ padding: '10px 16px', fontSize: 12, color: C.textSub, background: 'none', border: `1px solid ${C.border}`, borderRadius: 5, cursor: 'pointer' }}
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* ── Setup: Verify code ──────────────────────────── */}
-        {view === 'setup-verify' && (
-          <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, overflow: 'hidden' }}>
-            <div style={{ padding: '16px 24px', borderBottom: `1px solid ${C.border}`, background: C.surfaceHdr }}>
-              <p style={{ fontSize: 13, fontWeight: 700, color: C.textPrimary, margin: 0 }}>Step 2 — Verify Code</p>
-              <p style={{ fontSize: 11, color: C.textSub, margin: '3px 0 0' }}>Enter the 6-digit code shown in your authenticator app to confirm setup.</p>
-            </div>
-            <form onSubmit={handleConfirm} style={{ padding: '24px' }}>
-              <div style={{ marginBottom: 20 }}>
-                <label style={{ display: 'block', fontSize: 10, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', color: C.textSub, marginBottom: 7 }}>
-                  Authentication Code
-                </label>
-                <div style={{ position: 'relative' }}>
-                  <ShieldCheck style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', width: 14, height: 14, color: C.textMuted, pointerEvents: 'none' }} />
+                <div className="mb-3">
+                  <label className="block text-[10px] font-semibold text-[#555] uppercase tracking-wide mb-1">
+                    Authentication Code
+                  </label>
                   <input
                     data-testid="input-setup-mfa-code"
                     type="text"
@@ -304,228 +456,89 @@ export default function AccountSecurity() {
                     autoFocus
                     value={setupCode}
                     onChange={e => setSetupCode(e.target.value.replace(/[^0-9]/g, '').slice(0, 6))}
-                    onFocus={() => setSetupFocus(true)}
-                    onBlur={() => setSetupFocus(false)}
-                    placeholder="000000"
+                    placeholder="000 000"
                     maxLength={6}
-                    style={{ ...inputStyle(setupFocus), fontSize: 20, fontWeight: 700, letterSpacing: '0.3em', textAlign: 'center' }}
+                    className="forti-input w-full text-center text-lg font-bold tracking-[0.4em]"
                   />
                 </div>
-              </div>
-              <div style={{ display: 'flex', gap: 10 }}>
-                <button
-                  data-testid="button-mfa-setup-confirm"
-                  type="submit"
-                  disabled={setupCode.length !== 6 || setupLoading}
-                  style={{ flex: 1, padding: '10px 16px', fontSize: 12, fontWeight: 700, color: '#fff', background: C.green, border: `1px solid ${C.green}`, borderRadius: 5, cursor: (setupCode.length !== 6 || setupLoading) ? 'not-allowed' : 'pointer', opacity: (setupCode.length !== 6 || setupLoading) ? 0.6 : 1 }}
-                >
-                  {setupLoading ? 'Verifying…' : 'Enable Two-Factor Authentication'}
-                </button>
-                <button type="button" onClick={() => setView('setup-qr')} style={{ padding: '10px 16px', fontSize: 12, color: C.textSub, background: 'none', border: `1px solid ${C.border}`, borderRadius: 5, cursor: 'pointer' }}>
-                  Back
-                </button>
-              </div>
-            </form>
-          </div>
-        )}
-
-        {/* ── Disable MFA ─────────────────────────────────── */}
-        {view === 'disable' && (
-          <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, overflow: 'hidden' }}>
-            <div style={{ padding: '16px 24px', borderBottom: `1px solid ${C.border}`, background: C.surfaceHdr }}>
-              <p style={{ fontSize: 13, fontWeight: 700, color: C.textPrimary, margin: 0 }}>Disable Two-Factor Authentication</p>
-              <p style={{ fontSize: 11, color: C.textSub, margin: '3px 0 0' }}>Confirm your password to disable MFA. Your account will require only a password to sign in.</p>
-            </div>
-            <form onSubmit={handleDisable} style={{ padding: '24px' }}>
-              <div style={{ marginBottom: 8, background: 'rgba(185,28,28,0.08)', border: '1px solid rgba(185,28,28,0.3)', borderRadius: 6, padding: '10px 14px', display: 'flex', gap: 8, alignItems: 'flex-start' }}>
-                <AlertCircle style={{ width: 13, height: 13, color: '#f87171', flexShrink: 0, marginTop: 1 }} />
-                <p style={{ fontSize: 11, color: '#fca5a5', margin: 0 }}>Disabling MFA reduces the security of your account. Anyone with your password can sign in.</p>
-              </div>
-              <div style={{ marginBottom: 20, marginTop: 16 }}>
-                <label style={{ display: 'block', fontSize: 10, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', color: C.textSub, marginBottom: 7 }}>
-                  Current Password
-                </label>
-                <div style={{ position: 'relative' }}>
-                  <Lock style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', width: 14, height: 14, color: C.textMuted, pointerEvents: 'none' }} />
-                  <input
-                    data-testid="input-disable-mfa-password"
-                    type={showDisablePass ? 'text' : 'password'}
-                    value={disablePass}
-                    onChange={e => setDisablePass(e.target.value)}
-                    onFocus={() => setDisableFocus(true)}
-                    onBlur={() => setDisableFocus(false)}
-                    placeholder="Current password"
-                    autoFocus
-                    style={inputStyle(disableFocus)}
-                  />
-                  <button type="button" onClick={() => setShowDisablePass(v => !v)} tabIndex={-1} style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: C.textMuted, padding: 0 }}>
-                    {showDisablePass ? <EyeOff style={{ width: 14, height: 14 }} /> : <Eye style={{ width: 14, height: 14 }} />}
+                <div className="flex gap-2">
+                  <button
+                    data-testid="button-mfa-setup-confirm"
+                    type="submit"
+                    disabled={setupCode.length !== 6 || setupLoading}
+                    className="forti-toolbar-btn primary"
+                  >
+                    <ShieldCheck size={11} />
+                    <span>{setupLoading ? 'Verifying…' : 'Enable Two-Factor Authentication'}</span>
+                  </button>
+                  <button type="button" onClick={() => setView('setup-qr')} className="forti-toolbar-btn">
+                    Back
                   </button>
                 </div>
-              </div>
-              <div style={{ display: 'flex', gap: 10 }}>
-                <button
-                  data-testid="button-mfa-disable-confirm"
-                  type="submit"
-                  disabled={!disablePass || disableLoading}
-                  style={{ flex: 1, padding: '10px 16px', fontSize: 12, fontWeight: 700, color: '#fff', background: C.red, border: `1px solid ${C.red}`, borderRadius: 5, cursor: (!disablePass || disableLoading) ? 'not-allowed' : 'pointer', opacity: (!disablePass || disableLoading) ? 0.6 : 1 }}
-                >
-                  {disableLoading ? 'Disabling…' : 'Disable Two-Factor Authentication'}
-                </button>
-                <button type="button" onClick={() => setView('status')} style={{ padding: '10px 16px', fontSize: 12, color: C.textSub, background: 'none', border: `1px solid ${C.border}`, borderRadius: 5, cursor: 'pointer' }}>
-                  Cancel
-                </button>
-              </div>
-            </form>
-          </div>
-        )}
-
-        {/* ── Change Password ──────────────────────────────── */}
-        <div style={{ marginTop: 28, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, overflow: 'hidden' }}>
-          <div style={{ padding: '16px 24px', borderBottom: `1px solid ${C.border}`, background: C.surfaceHdr, display: 'flex', alignItems: 'center', gap: 10 }}>
-            <KeyRound style={{ width: 15, height: 15, color: C.textSub }} />
-            <div>
-              <p style={{ fontSize: 13, fontWeight: 700, color: C.textPrimary, margin: 0 }}>Change Password</p>
-              <p style={{ fontSize: 11, color: C.textSub, margin: '3px 0 0' }}>
-                Update your account password. You will remain logged in after changing it.
-              </p>
+              </form>
             </div>
-          </div>
+          )}
 
-          <form onSubmit={handleChangePassword} style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: 18 }}>
-            {isMock && (
-              <div style={{ background: '#1c2030', border: '1px solid #334155', borderRadius: 8, padding: '10px 14px', display: 'flex', gap: 8, alignItems: 'flex-start' }}>
-                <AlertCircle style={{ width: 13, height: 13, color: '#f59e0b', flexShrink: 0, marginTop: 1 }} />
-                <p style={{ fontSize: 11, color: '#94a3b8', margin: 0 }}>
-                  Running in demo mode. Password change requires a real database connection.
-                </p>
+          {/* ════════════════════════════════════════════════
+              VIEW: DISABLE
+          ════════════════════════════════════════════════ */}
+          {view === 'disable' && (
+            <div className="bg-white border border-[#ddd]">
+              <div className="section-header-neutral">
+                <div className="flex items-center gap-1.5">
+                  <ShieldOff size={12} />
+                  <span>Disable Two-Factor Authentication</span>
+                </div>
               </div>
-            )}
-
-            {/* Current password */}
-            <div>
-              <label style={{ display: 'block', fontSize: 10, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', color: C.textSub, marginBottom: 7 }}>
-                Current Password
-              </label>
-              <div style={{ position: 'relative' }}>
-                <Lock style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', width: 14, height: 14, color: C.textMuted, pointerEvents: 'none' }} />
-                <input
-                  data-testid="input-cp-current"
-                  type={showCpCurrent ? 'text' : 'password'}
-                  value={cpCurrent}
-                  onChange={e => setCpCurrent(e.target.value)}
-                  onFocus={() => setFocus('current', true)}
-                  onBlur={() => setFocus('current', false)}
-                  placeholder="Enter current password"
-                  autoComplete="current-password"
-                  style={{ ...inputStyle(cpFocus.current), paddingRight: 40 }}
-                  disabled={isMock}
-                />
-                <button type="button" onClick={() => setShowCpCurrent(v => !v)} tabIndex={-1}
-                  style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: C.textMuted, padding: 0 }}>
-                  {showCpCurrent ? <EyeOff style={{ width: 14, height: 14 }} /> : <Eye style={{ width: 14, height: 14 }} />}
-                </button>
-              </div>
-            </div>
-
-            {/* New password */}
-            <div>
-              <label style={{ display: 'block', fontSize: 10, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', color: C.textSub, marginBottom: 7 }}>
-                New Password
-              </label>
-              <div style={{ position: 'relative' }}>
-                <Lock style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', width: 14, height: 14, color: C.textMuted, pointerEvents: 'none' }} />
-                <input
-                  data-testid="input-cp-new"
-                  type={showCpNew ? 'text' : 'password'}
-                  value={cpNew}
-                  onChange={e => setCpNew(e.target.value)}
-                  onFocus={() => setFocus('new', true)}
-                  onBlur={() => setFocus('new', false)}
-                  placeholder="Minimum 8 characters"
-                  autoComplete="new-password"
-                  style={{ ...inputStyle(cpFocus.new), paddingRight: 40 }}
-                  disabled={isMock}
-                />
-                <button type="button" onClick={() => setShowCpNew(v => !v)} tabIndex={-1}
-                  style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: C.textMuted, padding: 0 }}>
-                  {showCpNew ? <EyeOff style={{ width: 14, height: 14 }} /> : <Eye style={{ width: 14, height: 14 }} />}
-                </button>
-              </div>
-              {/* Strength indicator */}
-              {cpNew.length > 0 && (
-                <div style={{ marginTop: 8 }}>
-                  <div style={{ display: 'flex', gap: 4, marginBottom: 4 }}>
-                    {[8, 12, 16].map((threshold, i) => (
-                      <div key={i} style={{ flex: 1, height: 3, borderRadius: 2, background: cpNew.length >= threshold ? (i === 0 ? '#f59e0b' : i === 1 ? '#3b82f6' : C.greenAccent) : C.border, transition: 'background 0.2s' }} />
-                    ))}
-                  </div>
-                  <span style={{ fontSize: 10, color: cpNew.length < 8 ? '#f59e0b' : cpNew.length < 12 ? '#3b82f6' : C.greenAccent }}>
-                    {cpNew.length < 8 ? 'Too short' : cpNew.length < 12 ? 'Fair' : 'Strong'}
+              <form onSubmit={handleDisable} className="p-4 max-w-sm space-y-3">
+                <div className="flex items-start gap-2 px-3 py-2 bg-red-50 border border-red-200 text-[11px]">
+                  <AlertTriangle size={11} className="text-red-500 mt-0.5 shrink-0" />
+                  <span className="text-red-700">
+                    Disabling MFA reduces account security. Anyone with your password can sign in.
                   </span>
                 </div>
-              )}
-            </div>
 
-            {/* Confirm new password */}
-            <div>
-              <label style={{ display: 'block', fontSize: 10, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', color: C.textSub, marginBottom: 7 }}>
-                Confirm New Password
-              </label>
-              <div style={{ position: 'relative' }}>
-                <Lock style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', width: 14, height: 14, color: C.textMuted, pointerEvents: 'none' }} />
-                <input
-                  data-testid="input-cp-confirm"
-                  type={showCpConfirm ? 'text' : 'password'}
-                  value={cpConfirm}
-                  onChange={e => setCpConfirm(e.target.value)}
-                  onFocus={() => setFocus('confirm', true)}
-                  onBlur={() => setFocus('confirm', false)}
-                  placeholder="Repeat new password"
-                  autoComplete="new-password"
-                  style={{
-                    ...inputStyle(cpFocus.confirm),
-                    paddingRight: 40,
-                    borderColor: cpConfirm && cpConfirm !== cpNew ? '#b91c1c' : cpFocus.confirm ? C.borderFocus : C.border,
-                  }}
-                  disabled={isMock}
-                />
-                <button type="button" onClick={() => setShowCpConfirm(v => !v)} tabIndex={-1}
-                  style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: C.textMuted, padding: 0 }}>
-                  {showCpConfirm ? <EyeOff style={{ width: 14, height: 14 }} /> : <Eye style={{ width: 14, height: 14 }} />}
-                </button>
-              </div>
-              {cpConfirm && cpConfirm !== cpNew && (
-                <p style={{ fontSize: 10, color: '#f87171', marginTop: 5 }}>Passwords do not match</p>
-              )}
-              {cpConfirm && cpConfirm === cpNew && cpNew.length >= 8 && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 5 }}>
-                  <CheckCircle2 style={{ width: 11, height: 11, color: C.greenAccent }} />
-                  <span style={{ fontSize: 10, color: C.greenAccent }}>Passwords match</span>
+                <div>
+                  <label className="block text-[10px] font-semibold text-[#555] uppercase tracking-wide mb-1">
+                    Confirm Current Password
+                  </label>
+                  <div className="relative">
+                    <Lock size={11} className="absolute left-2 top-1/2 -translate-y-1/2 text-[#aaa] pointer-events-none" />
+                    <input
+                      data-testid="input-disable-mfa-password"
+                      type={showDisablePass ? 'text' : 'password'}
+                      value={disablePass}
+                      onChange={e => setDisablePass(e.target.value)}
+                      placeholder="Current password"
+                      autoFocus
+                      className="forti-input w-full pl-7 pr-7"
+                    />
+                    <button type="button" onClick={() => setShowDisablePass(v => !v)} tabIndex={-1}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-[#aaa] hover:text-[#555] bg-transparent border-0 cursor-pointer p-0">
+                      {showDisablePass ? <EyeOff size={11} /> : <Eye size={11} />}
+                    </button>
+                  </div>
                 </div>
-              )}
-            </div>
 
-            <div style={{ paddingTop: 4 }}>
-              <button
-                data-testid="button-change-password-submit"
-                type="submit"
-                disabled={isMock || cpLoading || !cpCurrent || cpNew.length < 8 || cpNew !== cpConfirm}
-                style={{
-                  padding: '10px 20px', fontSize: 12, fontWeight: 700,
-                  color: '#fff', background: C.green, border: `1px solid ${C.green}`, borderRadius: 5,
-                  cursor: (isMock || cpLoading || !cpCurrent || cpNew.length < 8 || cpNew !== cpConfirm) ? 'not-allowed' : 'pointer',
-                  opacity: (isMock || cpLoading || !cpCurrent || cpNew.length < 8 || cpNew !== cpConfirm) ? 0.6 : 1,
-                  display: 'flex', alignItems: 'center', gap: 7,
-                }}
-              >
-                <KeyRound style={{ width: 13, height: 13 }} />
-                {cpLoading ? 'Changing Password…' : 'Change Password'}
-              </button>
+                <div className="flex gap-2">
+                  <button
+                    data-testid="button-mfa-disable-confirm"
+                    type="submit"
+                    disabled={!disablePass || disableLoading}
+                    className="forti-toolbar-btn text-red-700 border-red-300 hover:bg-red-50 disabled:opacity-60 disabled:cursor-not-allowed"
+                  >
+                    <ShieldOff size={11} />
+                    <span>{disableLoading ? 'Disabling…' : 'Disable Two-Factor Authentication'}</span>
+                  </button>
+                  <button type="button" onClick={() => setView('status')} className="forti-toolbar-btn">
+                    Cancel
+                  </button>
+                </div>
+              </form>
             </div>
-          </form>
+          )}
+
         </div>
-
       </div>
     </Shell>
   );
