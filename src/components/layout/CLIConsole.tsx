@@ -8,11 +8,23 @@ interface CLILine {
 }
 
 // ── Helpers ────────────────────────────────────────────────────
+function fmtBytes(bytes: number, dp = 1): string {
+  if (!bytes || bytes === 0) return '0 B';
+  const k = 1024;
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.min(Math.floor(Math.log(bytes) / Math.log(k)), units.length - 1);
+  return `${(bytes / Math.pow(k, i)).toFixed(dp)} ${units[i]}`;
+}
+function pct(used: number, total: number): string {
+  if (!total) return '0%';
+  return `${Math.round((used / total) * 100)}%`;
+}
+function pad(str: string, len: number): string {
+  return str.length >= len ? str : str + ' '.repeat(len - str.length);
+}
 function formatUptime(seconds: number): string {
-  const d = Math.floor(seconds / 86400);
-  const h = Math.floor((seconds % 86400) / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  const s = Math.floor(seconds % 60);
+  const d = Math.floor(seconds / 86400), h = Math.floor((seconds % 86400) / 3600),
+        m = Math.floor((seconds % 3600) / 60), s = Math.floor(seconds % 60);
   const parts = [];
   if (d > 0) parts.push(`${d}d`);
   if (h > 0) parts.push(`${h}h`);
@@ -21,272 +33,262 @@ function formatUptime(seconds: number): string {
   return parts.join(' ');
 }
 
-function fmtBytes(bytes: number, dp = 1): string {
-  if (!bytes || bytes === 0) return '0 B';
-  const k = 1024;
-  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-  const i = Math.min(Math.floor(Math.log(bytes) / Math.log(k)), units.length - 1);
-  return `${(bytes / Math.pow(k, i)).toFixed(dp)} ${units[i]}`;
-}
-
-function pct(used: number, total: number): string {
-  if (!total) return '0%';
-  return `${Math.round((used / total) * 100)}%`;
-}
-
-function pad(str: string, len: number): string {
-  return str.length >= len ? str : str + ' '.repeat(len - str.length);
-}
-
 const getToken = () => localStorage.getItem('sonaro_token') ?? '';
 
 async function apiFetch(path: string): Promise<any> {
-  const res = await fetch(path, {
-    headers: { Authorization: `Bearer ${getToken()}` },
-  });
+  const res = await fetch(path, { headers: { Authorization: `Bearer ${getToken()}` } });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }
 
+async function cliExec(command: string): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+  const res = await fetch('/api/cli/exec', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
+    body: JSON.stringify({ command }),
+  });
+  if (!res.ok) throw new Error(`CLI API error: HTTP ${res.status}`);
+  return res.json();
+}
+
 // ── HELP ───────────────────────────────────────────────────────
-const HELP_TEXT = `Available commands:
-  help              - Show this help message
-  status            - Show system status summary
-  interfaces        - List network interfaces (real OS data)
-  routes            - Show routing table (real OS data)
-  firewall rules    - List firewall rules from database
-  vpn status        - Show VPN tunnel status
-  dns lookup <host> - Perform DNS lookup
-  ping <host>       - Simulate ping to host
-  uptime            - Show system uptime (real OS data)
-  version           - Show firmware version
-  cpu               - Show CPU usage (real OS data)
-  memory            - Show memory usage (real OS data)
-  disk              - Show disk usage (real OS data)
-  sessions          - Show system session summary
-  clear             - Clear console
-  exit              - Close console`;
+const HELP_TEXT = `Sonaro Gate CLI — Available Commands
 
-// ── Async command executor ─────────────────────────────────────
-async function executeCommand(cmd: string): Promise<{ text: string; isError?: boolean }> {
-  const raw = cmd.trim();
-  const lower = raw.toLowerCase();
+SYSTEM DIAGNOSTICS
+  status              System status summary (live metrics)
+  cpu                 CPU usage and load averages
+  memory              Memory usage breakdown
+  disk / df [-h]      Disk space usage
+  uptime              System uptime and load
+  version             Firmware and OS version
+  uname [-a]          Kernel and architecture info
+  hostname            Show system hostname
+  date                Current date and time
+  id                  Current user and groups
+  ps [aux]            Running processes
+  top [-bn1]          CPU/memory process table (one snapshot)
 
-  if (lower === 'help') return { text: HELP_TEXT };
-  if (lower === 'clear') return { text: '__CLEAR__' };
-  if (lower === 'exit') return { text: '__EXIT__' };
+NETWORK DIAGNOSTICS
+  ping <host>         Test connectivity (TCP probe, real DNS)
+  ip addr             Network interfaces and IP addresses
+  ip route            Routing table
+  ip neigh            ARP/neighbor table
+  ss [-tulpn]         Active sockets and listening ports
+  netstat [-tulpn]    Same as ss
+  arp                 ARP table
+  ifconfig            Interface addresses
+  route               Routing table
 
-  // ── cpu, memory, disk, uptime, status — real metrics ──────
+DNS & NAME RESOLUTION
+  dig <host> [type]   DNS lookup (A/AAAA/MX/TXT/NS/CNAME/SOA)
+  nslookup <host>     Name server lookup
+  host <host>         DNS query
+
+FIREWALL (requires root on Ubuntu)
+  iptables [-L -n -v] List iptables rules
+  ip6tables           IPv6 firewall rules
+  iptables-save       Dump all rules in save format
+
+SYSTEM SERVICES (Ubuntu 24.04 with systemd)
+  systemctl [cmd]     Service management (status, list-units…)
+  journalctl [-n 50]  System journal (last 50 lines by default)
+
+NETWORK TOOLS (install on Ubuntu if missing)
+  traceroute <host>   Trace packet route  (apt install traceroute)
+  mtr <host>          My traceroute        (apt install mtr)
+  nmap <target>       Network scan         (apt install nmap)
+  curl -sI <url>      HTTP header probe
+
+FIREWALL DATABASE (live DB query, always available)
+  firewall rules      List rules from database
+  vpn status          VPN tunnel status from database
+
+UTILITIES
+  cat /proc/…         Read /proc entries
+  cat /etc/hosts      View /etc/hosts
+  cat /etc/resolv.conf DNS resolver config
+  clear               Clear console
+  exit / quit         Close console`;
+
+// ── DB-backed commands (always work regardless of OS) ──────────
+async function executeDbCommand(raw: string): Promise<{ text: string; isError?: boolean } | null> {
+  const lower = raw.trim().toLowerCase();
+
+  // ── status / cpu / memory / disk / uptime / sessions ───────
   if (['cpu', 'memory', 'disk', 'uptime', 'status', 'sessions'].includes(lower)) {
-    try {
-      const rows: any[] = await apiFetch('/api/data/system_metrics?order=recorded_at.desc&limit=1');
-      const m = rows[0];
-      if (!m) throw new Error('No metrics available');
+    const rows: any[] = await apiFetch('/api/data/system_metrics?order=recorded_at.desc&limit=1');
+    const m = rows[0];
+    if (!m) throw new Error('No metrics available yet — agent may still be collecting');
 
-      if (lower === 'uptime') {
-        return { text: `System uptime: ${formatUptime(m.uptime)}\nRecorded: ${new Date(m.recorded_at).toLocaleString()}` };
-      }
-
-      if (lower === 'cpu') {
-        return {
-          text: `CPU Usage:     ${parseFloat(m.cpu_usage).toFixed(1)}%\nCores:         ${m.cpu_cores}\nTemperature:   ${parseFloat(m.cpu_temperature || 0).toFixed(1)}°C\nLoad Avg:      ${m.load_1m} / ${m.load_5m} / ${m.load_15m}  (1m / 5m / 15m)`,
-        };
-      }
-
-      if (lower === 'memory') {
-        const used = m.memory_used;
-        const total = m.memory_total;
-        const free = m.memory_free;
-        const cached = m.memory_cached;
-        return {
-          text: `Memory Total:  ${fmtBytes(total)}\nMemory Used:   ${fmtBytes(used)}  (${pct(used, total)})\nMemory Free:   ${fmtBytes(free)}\nMemory Cached: ${fmtBytes(cached)}\nSwap:          0 / 2.0 GB (swap managed by OS)`,
-        };
-      }
-
-      if (lower === 'disk') {
-        const total = m.disk_total;
-        const used = m.disk_used;
-        const free = m.disk_free;
-        return {
-          text: `Filesystem   ${pad('Size', 10)} ${pad('Used', 10)} ${pad('Free', 10)} Use%\n/dev/sda1    ${pad(fmtBytes(total), 10)} ${pad(fmtBytes(used), 10)} ${pad(fmtBytes(free), 10)} ${pct(used, total)}`,
-        };
-      }
-
-      if (lower === 'sessions') {
-        return {
-          text: `System Metrics Snapshot\n  Hostname:  ${m.hostname || 'sonaro-gw-01'}\n  CPU:       ${parseFloat(m.cpu_usage).toFixed(1)}%\n  Memory:    ${pct(m.memory_used, m.memory_total)} of ${fmtBytes(m.memory_total)}\n  Disk:      ${pct(m.disk_used, m.disk_total)} of ${fmtBytes(m.disk_total)}\n  Uptime:    ${formatUptime(m.uptime)}\nNote: Live session counts require nf_conntrack on Ubuntu.`,
-        };
-      }
-
-      // status
-      let settings: any[] = [];
-      try { settings = await apiFetch('/api/data/system_settings?select=key,value'); } catch { /* ignore */ }
-      const serial = settings.find((s: any) => s.key === 'serial_number')?.value ?? 'SGW-UNKNOWN';
-      const hostname = m.hostname || 'sonaro-gw-01';
-      const cpuPct = parseFloat(m.cpu_usage).toFixed(1);
-      const memPct = pct(m.memory_used, m.memory_total);
-      const diskPct = pct(m.disk_used, m.disk_total);
+    if (lower === 'uptime') {
+      return { text: `System uptime: ${formatUptime(m.uptime)}\nRecorded: ${new Date(m.recorded_at).toLocaleString()}` };
+    }
+    if (lower === 'cpu') {
       return {
-        text: [
-          `System Status:   ONLINE`,
-          `Hostname:        ${hostname}`,
-          `Model:           Sonaro Gate 2025.1 LTS`,
-          `Serial:          ${serial}`,
-          `Uptime:          ${formatUptime(m.uptime)}`,
-          `CPU Usage:       ${cpuPct}%   Load: ${m.load_1m} / ${m.load_5m} / ${m.load_15m}`,
-          `Memory:          ${fmtBytes(m.memory_used)} / ${fmtBytes(m.memory_total)}  (${memPct})`,
-          `Disk:            ${fmtBytes(m.disk_used)} / ${fmtBytes(m.disk_total)}  (${diskPct})`,
-          `Threat Level:    LOW`,
-        ].join('\n'),
+        text: `CPU Usage:     ${parseFloat(m.cpu_usage).toFixed(1)}%\nCores:         ${m.cpu_cores}\nTemperature:   ${parseFloat(m.cpu_temperature || 0).toFixed(1)}°C\nLoad Avg:      ${m.load_1m} / ${m.load_5m} / ${m.load_15m}  (1m / 5m / 15m)`,
       };
-    } catch (err: any) {
-      return { text: `Error fetching system metrics: ${err.message}`, isError: true };
     }
+    if (lower === 'memory') {
+      return {
+        text: `Memory Total:  ${fmtBytes(m.memory_total)}\nMemory Used:   ${fmtBytes(m.memory_used)}  (${pct(m.memory_used, m.memory_total)})\nMemory Free:   ${fmtBytes(m.memory_free)}\nMemory Cached: ${fmtBytes(m.memory_cached)}`,
+      };
+    }
+    if (lower === 'disk') {
+      return {
+        text: `Filesystem   ${pad('Size', 10)} ${pad('Used', 10)} ${pad('Free', 10)} Use%\n/dev/sda1    ${pad(fmtBytes(m.disk_total), 10)} ${pad(fmtBytes(m.disk_used), 10)} ${pad(fmtBytes(m.disk_free), 10)} ${pct(m.disk_used, m.disk_total)}`,
+      };
+    }
+    if (lower === 'sessions') {
+      return {
+        text: `System Metrics Snapshot\n  Hostname:  ${m.hostname || 'sonaro-gw-01'}\n  CPU:       ${parseFloat(m.cpu_usage).toFixed(1)}%\n  Memory:    ${pct(m.memory_used, m.memory_total)} of ${fmtBytes(m.memory_total)}\n  Disk:      ${pct(m.disk_used, m.disk_total)} of ${fmtBytes(m.disk_total)}\n  Uptime:    ${formatUptime(m.uptime)}`,
+      };
+    }
+
+    // status
+    let settings: any[] = [];
+    try { settings = await apiFetch('/api/data/system_settings?select=key,value'); } catch { /* ignore */ }
+    const serial = settings.find((s: any) => s.key === 'serial_number')?.value ?? 'SGW-UNKNOWN';
+    return {
+      text: [
+        `System Status:   ONLINE`,
+        `Hostname:        ${m.hostname || 'sonaro-gw-01'}`,
+        `Model:           Sonaro Gate 2025.1 LTS`,
+        `Serial:          ${serial}`,
+        `Uptime:          ${formatUptime(m.uptime)}`,
+        `CPU Usage:       ${parseFloat(m.cpu_usage).toFixed(1)}%   Load: ${m.load_1m} / ${m.load_5m} / ${m.load_15m}`,
+        `Memory:          ${fmtBytes(m.memory_used)} / ${fmtBytes(m.memory_total)}  (${pct(m.memory_used, m.memory_total)})`,
+        `Disk:            ${fmtBytes(m.disk_used)} / ${fmtBytes(m.disk_total)}  (${pct(m.disk_used, m.disk_total)})`,
+        `Threat Level:    LOW`,
+      ].join('\n'),
+    };
   }
 
-  // ── interfaces — real OS data ──────────────────────────────
+  // ── interfaces (from OS via backend) ────────────────────────
   if (lower === 'interfaces') {
-    try {
-      const ifaces: any[] = await apiFetch('/api/system/interfaces');
-      if (!ifaces || ifaces.length === 0) {
-        return { text: 'No interface data available. (Requires Linux OS)' };
-      }
-      const header = `${pad('Interface', 12)} ${pad('Status', 8)} ${pad('IP Address', 20)} ${pad('MAC', 18)} ${pad('Speed', 10)} RX / TX`;
-      const sep    = '─'.repeat(82);
-      const rows = ifaces.map((iface: any) => {
-        const name    = pad(iface.ifname || iface.name || '?', 12);
-        const status  = pad(iface.operstate === 'up' || iface.enabled ? 'UP' : 'DOWN', 8);
-        const ip      = pad(iface.addr_info?.[0]?.local ?? iface.ip ?? '—', 20);
-        const mac     = pad(iface.address || iface.mac || '—', 18);
-        const speed   = pad(iface.speed ? `${iface.speed} Mbps` : '—', 10);
-        const rx      = fmtBytes(iface.stats?.rx_bytes ?? iface.rx_bytes ?? 0);
-        const tx      = fmtBytes(iface.stats?.tx_bytes ?? iface.tx_bytes ?? 0);
-        return `${name} ${status} ${ip} ${mac} ${speed} ${rx} / ${tx}`;
-      });
-      return { text: [header, sep, ...rows].join('\n') };
-    } catch (err: any) {
-      return { text: `Error fetching interfaces: ${err.message}`, isError: true };
-    }
+    const ifaces: any[] = await apiFetch('/api/system/interfaces');
+    if (!ifaces || ifaces.length === 0) return { text: 'No interface data (requires Linux OS)' };
+    const header = `${pad('Interface', 12)} ${pad('Status', 8)} ${pad('IP Address', 20)} ${pad('MAC', 18)} RX / TX`;
+    const sep = '─'.repeat(76);
+    const rows = ifaces.map((iface: any) => {
+      const name   = pad(iface.ifname || iface.name || '?', 12);
+      const status = pad(iface.operstate === 'up' || iface.enabled ? 'UP' : 'DOWN', 8);
+      const ip     = pad(iface.addr_info?.[0]?.local ?? iface.ip ?? '—', 20);
+      const mac    = pad(iface.address || iface.mac || '—', 18);
+      const rx     = fmtBytes(iface.stats?.rx_bytes ?? iface.rx_bytes ?? 0);
+      const tx     = fmtBytes(iface.stats?.tx_bytes ?? iface.tx_bytes ?? 0);
+      return `${name} ${status} ${ip} ${mac} ${rx} / ${tx}`;
+    });
+    return { text: [header, sep, ...rows].join('\n') };
   }
 
-  // ── routes — real OS data ──────────────────────────────────
+  // ── routes ───────────────────────────────────────────────────
   if (lower === 'routes') {
-    try {
-      const routes: any[] = await apiFetch('/api/system/routes');
-      if (!routes || routes.length === 0) {
-        return { text: 'No routing table data. (Requires Linux OS with ip route)' };
-      }
-      const header = `${pad('Destination', 20)} ${pad('Gateway', 16)} ${pad('Interface', 12)} ${pad('Metric', 8)} Flags`;
-      const sep    = '─'.repeat(72);
-      const rows = routes.map((r: any) => {
-        const dst  = pad(r.dst || r.destination || '0.0.0.0/0', 20);
-        const gw   = pad(r.gateway ?? r.via ?? 'link', 16);
-        const dev  = pad(r.dev || r.iface || '?', 12);
-        const met  = pad(String(r.metric ?? 0), 8);
-        const flgs = r.type || '';
-        return `${dst} ${gw} ${dev} ${met} ${flgs}`;
-      });
-      return { text: [header, sep, ...rows].join('\n') };
-    } catch (err: any) {
-      return { text: `Error fetching routes: ${err.message}`, isError: true };
-    }
+    const routes: any[] = await apiFetch('/api/system/routes');
+    if (!routes || routes.length === 0) return { text: 'No routing data (requires Linux OS with ip route)' };
+    const header = `${pad('Destination', 20)} ${pad('Gateway', 16)} ${pad('Interface', 12)} ${pad('Metric', 8)} Flags`;
+    const sep = '─'.repeat(72);
+    const rows = routes.map((r: any) => {
+      return `${pad(r.dst || r.destination || '0.0.0.0/0', 20)} ${pad(r.gateway ?? r.via ?? 'link', 16)} ${pad(r.dev || r.iface || '?', 12)} ${pad(String(r.metric ?? 0), 8)} ${r.type || ''}`;
+    });
+    return { text: [header, sep, ...rows].join('\n') };
   }
 
-  // ── firewall rules — from DB ───────────────────────────────
+  // ── firewall rules ───────────────────────────────────────────
   if (lower === 'firewall rules') {
-    try {
-      const rules: any[] = await apiFetch('/api/data/firewall_rules?select=id,enabled,action,source,destination,service,hit_count&order=position.asc&limit=20');
-      if (!rules || rules.length === 0) return { text: 'No firewall rules found in database.' };
-      const header = `${pad('ID', 5)} ${pad('Act', 8)} ${pad('Source', 18)} ${pad('Dest', 18)} ${pad('Service', 12)} Hits`;
-      const sep    = '─'.repeat(72);
-      const rows = rules.map((r: any) => {
-        const id  = pad(String(r.id).substring(0, 4), 5);
-        const act = pad(r.action || 'ACCEPT', 8);
-        const src = pad(r.source || 'any', 18);
-        const dst = pad(r.destination || 'any', 18);
-        const svc = pad(r.service || 'ALL', 12);
-        const hit = String(r.hit_count ?? 0);
-        return `${id} ${act} ${src} ${dst} ${svc} ${hit}`;
-      });
-      return { text: [header, sep, ...rows, `\nTotal rules in DB: ${rules.length}`].join('\n') };
-    } catch (err: any) {
-      return { text: `Error fetching firewall rules: ${err.message}`, isError: true };
-    }
+    const rules: any[] = await apiFetch('/api/data/firewall_rules?select=id,enabled,action,source,destination,service,hit_count&order=position.asc&limit=30');
+    if (!rules || rules.length === 0) return { text: 'No firewall rules found in database.' };
+    const header = `${pad('ID', 5)} ${pad('Act', 8)} ${pad('Src', 18)} ${pad('Dst', 18)} ${pad('Service', 12)} Hits`;
+    const sep = '─'.repeat(72);
+    const rows = rules.map((r: any) =>
+      `${pad(String(r.id).substring(0, 4), 5)} ${pad(r.action || 'ACCEPT', 8)} ${pad(r.source || 'any', 18)} ${pad(r.destination || 'any', 18)} ${pad(r.service || 'ALL', 12)} ${r.hit_count ?? 0}`
+    );
+    return { text: [header, sep, ...rows, `\nTotal: ${rules.length} rules`].join('\n') };
   }
 
-  // ── vpn status — DB ───────────────────────────────────────
+  // ── vpn status ───────────────────────────────────────────────
   if (lower === 'vpn status') {
     try {
       const tunnels: any[] = await apiFetch('/api/data/vpn_tunnels?select=name,type,status,remote_gateway,uptime&limit=10');
-      if (!tunnels || tunnels.length === 0) {
-        return { text: 'No VPN tunnels configured in database.\nDaemon: strongSwan/WireGuard not installed.' };
-      }
+      if (!tunnels || tunnels.length === 0) return { text: 'No VPN tunnels configured.\nDaemon: strongSwan/WireGuard — install with: apt install strongswan' };
       const header = `${pad('Tunnel', 16)} ${pad('Type', 8)} ${pad('Status', 8)} ${pad('Remote', 18)} Uptime`;
-      const sep    = '─'.repeat(70);
+      const sep = '─'.repeat(70);
       const rows = tunnels.map((t: any) =>
         `${pad(t.name || '?', 16)} ${pad(t.type || 'IPsec', 8)} ${pad(t.status || 'DOWN', 8)} ${pad(t.remote_gateway || '—', 18)} ${t.uptime ?? '—'}`
       );
       return { text: [header, sep, ...rows].join('\n') };
     } catch {
-      // Fallback if VPN table not accessible
-      return { text: `VPN Tunnel Status:\n  Daemon:    strongSwan / WireGuard\n  Status:    Not installed (run: apt install strongswan)\n  Tunnels:   0 active\nTo configure VPN tunnels, use the VPN > IPsec Tunnels page.` };
+      return { text: 'VPN: strongSwan/WireGuard not installed.\nInstall: apt install strongswan wireguard' };
     }
   }
 
-  // ── version ───────────────────────────────────────────────
+  // ── version ──────────────────────────────────────────────────
   if (lower === 'version') {
-    try {
-      const settings: any[] = await apiFetch('/api/data/system_settings?select=key,value');
-      const serial = settings.find((s: any) => s.key === 'serial_number')?.value ?? 'SGW-UNKNOWN';
-      const hostname = settings.find((s: any) => s.key === 'hostname')?.value ?? 'sonaro-gw-01';
-      return {
-        text: [
-          `Sonaro Gate 2025.1 LTS (build 2025.04)`,
-          `Hostname:  ${hostname}`,
-          `Serial:    ${serial}`,
-          `Kernel:    Linux 6.8 (Ubuntu 24.04 LTS)`,
-          `Platform:  x86_64`,
-          `Last sync: ${new Date().toLocaleString()}`,
-        ].join('\n'),
-      };
-    } catch {
-      return { text: 'Sonaro Gate 2025.1 LTS (build 2025.04)\nKernel: Linux 6.8 (Ubuntu 24.04 LTS)' };
-    }
-  }
-
-  // ── dns lookup — simulated (needs dnsmasq) ─────────────────
-  if (lower.startsWith('dns lookup ')) {
-    const host = raw.slice('dns lookup '.length).trim();
-    if (!host) return { text: 'Usage: dns lookup <hostname>', isError: true };
-    const ms = Math.floor(Math.random() * 60) + 5;
-    const fakeIP = `${Math.floor(Math.random() * 200) + 10}.${Math.floor(Math.random() * 255)}.${Math.floor(Math.random() * 255)}.${Math.floor(Math.random() * 254) + 1}`;
-    return {
-      text: `Resolving ${host}...\nName:       ${host}\nAddress:    ${fakeIP}\nTTL:        ${Math.floor(Math.random() * 3600) + 60}s\nQuery time: ${ms}ms\nServer:     127.0.0.1#53 (local DNS)`,
-    };
-  }
-
-  // ── ping — simulated ───────────────────────────────────────
-  if (lower.startsWith('ping ')) {
-    const host = raw.slice('ping '.length).trim();
-    if (!host) return { text: 'Usage: ping <host>', isError: true };
-    const ms = () => (Math.random() * 30 + 0.5).toFixed(2);
-    const base = Math.floor(Math.random() * 50) + 1;
+    let settings: any[] = [];
+    try { settings = await apiFetch('/api/data/system_settings?select=key,value'); } catch { /* ignore */ }
+    const serial = settings.find((s: any) => s.key === 'serial_number')?.value ?? 'SGW-UNKNOWN';
+    const hostname = settings.find((s: any) => s.key === 'hostname')?.value ?? 'sonaro-gw-01';
     return {
       text: [
-        `PING ${host} (${host}): 56 data bytes`,
-        `64 bytes from ${host}: icmp_seq=1 ttl=64 time=${ms()} ms`,
-        `64 bytes from ${host}: icmp_seq=2 ttl=64 time=${ms()} ms`,
-        `64 bytes from ${host}: icmp_seq=3 ttl=64 time=${ms()} ms`,
-        `64 bytes from ${host}: icmp_seq=4 ttl=64 time=${ms()} ms`,
-        `--- ${host} ping statistics ---`,
-        `4 packets transmitted, 4 received, 0% packet loss, time ${base + 3}ms`,
-        `Note: Simulated — real ping requires root/CAP_NET_RAW`,
+        `Sonaro Gate 2025.1 LTS (build 2025.04)`,
+        `Hostname:  ${hostname}`,
+        `Serial:    ${serial}`,
+        `Kernel:    Linux 6.8 (Ubuntu 24.04 LTS)`,
+        `Platform:  x86_64`,
+        `iptables:  ${typeof window !== 'undefined' ? 'check with: iptables -V' : 'n/a'}`,
+        `Suricata:  check with: systemctl status suricata`,
       ].join('\n'),
     };
   }
 
-  return { text: `Unknown command: "${raw}"\nType "help" for available commands.`, isError: true };
+  return null; // not a DB command
 }
+
+// ── Main command dispatcher ─────────────────────────────────────
+async function executeCommand(cmd: string): Promise<{ text: string; isError?: boolean }> {
+  const raw = cmd.trim();
+  const lower = raw.toLowerCase();
+
+  if (lower === 'help' || lower === '?') return { text: HELP_TEXT };
+  if (lower === 'clear') return { text: '__CLEAR__' };
+  if (lower === 'exit' || lower === 'quit') return { text: '__EXIT__' };
+
+  // Try DB-backed commands first
+  try {
+    const dbResult = await executeDbCommand(raw);
+    if (dbResult !== null) return dbResult;
+  } catch (err: any) {
+    return { text: `Error: ${err.message}`, isError: true };
+  }
+
+  // Forward all other commands to the real Linux backend
+  try {
+    const { stdout, stderr, exitCode } = await cliExec(raw);
+    const combined = [stdout, stderr].filter(Boolean).join('\n').trim();
+    return {
+      text: combined || `(no output — exit code ${exitCode})`,
+      isError: exitCode !== 0 && !stdout,
+    };
+  } catch (err: any) {
+    return { text: `Error communicating with server: ${err.message}`, isError: true };
+  }
+}
+
+// ── Tab-completion list ────────────────────────────────────────
+const COMMANDS = [
+  'help', 'status', 'cpu', 'memory', 'disk', 'uptime', 'version', 'sessions',
+  'interfaces', 'routes', 'firewall rules', 'vpn status',
+  'ping ', 'ip addr', 'ip route', 'ip neigh', 'ifconfig', 'arp',
+  'ss -tulpn', 'netstat -tulpn',
+  'dig ', 'nslookup ', 'host ',
+  'iptables -L -n -v', 'ip6tables -L -n -v',
+  'df -h', 'free -h', 'top -bn1', 'ps aux',
+  'uname -a', 'hostname', 'date', 'id', 'uptime',
+  'systemctl status ', 'journalctl -n 50',
+  'traceroute ', 'mtr ', 'nmap ',
+  'curl -sI ', 'cat /proc/net/dev', 'cat /etc/resolv.conf', 'cat /etc/hosts',
+  'cat /proc/meminfo', 'cat /proc/cpuinfo', 'cat /etc/os-release',
+  'clear', 'exit',
+];
 
 // ── Component ──────────────────────────────────────────────────
 interface CLIConsoleProps {
@@ -294,16 +296,10 @@ interface CLIConsoleProps {
   onOpenChange: (open: boolean) => void;
 }
 
-const COMMANDS = [
-  'help', 'status', 'interfaces', 'routes', 'firewall rules',
-  'vpn status', 'dns lookup ', 'ping ', 'uptime', 'version',
-  'cpu', 'memory', 'disk', 'sessions', 'clear', 'exit',
-];
-
 export function CLIConsole({ open, onOpenChange }: CLIConsoleProps) {
   const [lines, setLines] = useState<CLILine[]>([
-    { type: 'system', text: 'Sonaro Gate CLI 2025.1 LTS' },
-    { type: 'system', text: 'Type "help" for available commands. Use ↑↓ for history, Tab to complete.' },
+    { type: 'system', text: 'Sonaro Gate CLI 2025.1 LTS — Real Linux Command Interface' },
+    { type: 'system', text: 'Type "help" for available commands. ↑↓ history · Tab complete · exit to close.' },
   ]);
   const [input, setInput] = useState('');
   const [history, setHistory] = useState<string[]>([]);
@@ -325,9 +321,8 @@ export function CLIConsole({ open, onOpenChange }: CLIConsoleProps) {
     const cmd = input.trim();
     if (!cmd || busy) return;
 
-    // Add input line
     setLines(prev => [...prev, { type: 'input', text: cmd }]);
-    setHistory(prev => [cmd, ...prev].slice(0, 50));
+    setHistory(prev => [cmd, ...prev].slice(0, 100));
     setHistoryIndex(-1);
     setInput('');
 
@@ -335,20 +330,17 @@ export function CLIConsole({ open, onOpenChange }: CLIConsoleProps) {
       setLines([{ type: 'system', text: 'Console cleared.' }]);
       return;
     }
-    if (cmd.toLowerCase() === 'exit') {
+    if (cmd.toLowerCase() === 'exit' || cmd.toLowerCase() === 'quit') {
       onOpenChange(false);
       return;
     }
 
-    // Add pending spinner
     setBusy(true);
-    const pendingId = Date.now();
-    setLines(prev => [...prev, { type: 'pending', text: `Executing ${cmd}…` }]);
+    setLines(prev => [...prev, { type: 'pending', text: `Executing…` }]);
 
     try {
       const result = await executeCommand(cmd);
       setLines(prev => {
-        // Replace pending line with result
         const withoutPending = prev.filter(l => l.type !== 'pending');
         return [...withoutPending, { type: result.isError ? 'error' : 'output', text: result.text }];
       });
@@ -377,6 +369,11 @@ export function CLIConsole({ open, onOpenChange }: CLIConsoleProps) {
       const lower = input.toLowerCase();
       const match = COMMANDS.find(c => c.startsWith(lower) && c !== lower);
       if (match) setInput(match);
+    } else if (e.ctrlKey && e.key === 'c') {
+      e.preventDefault();
+      setBusy(false);
+      setLines(prev => prev.filter(l => l.type !== 'pending'));
+      setInput('');
     }
   };
 
@@ -388,6 +385,7 @@ export function CLIConsole({ open, onOpenChange }: CLIConsoleProps) {
         aria-describedby={undefined}
       >
         <VisuallyHidden><DialogTitle>Sonaro Gate CLI Console</DialogTitle></VisuallyHidden>
+
         {/* Title bar */}
         <div className="flex items-center gap-2 px-3 py-2 border-b" style={{ background: '#161b22', borderColor: '#30363d' }}>
           <div className="w-3 h-3 rounded-full bg-red-500" />
@@ -403,7 +401,7 @@ export function CLIConsole({ open, onOpenChange }: CLIConsoleProps) {
         {/* Terminal body */}
         <div
           ref={scrollRef}
-          className="h-[460px] overflow-y-auto p-4 font-mono text-[12px] leading-relaxed"
+          className="h-[480px] overflow-y-auto p-4 font-mono text-[12px] leading-relaxed"
           style={{ background: '#0d1117', color: '#c9d1d9' }}
           onClick={() => inputRef.current?.focus()}
         >
@@ -414,7 +412,7 @@ export function CLIConsole({ open, onOpenChange }: CLIConsoleProps) {
                   <span style={{ color: '#3fb950' }}>admin@sonaro</span>
                   <span style={{ color: '#6e7681' }}>:</span>
                   <span style={{ color: '#79c0ff' }}>~</span>
-                  <span style={{ color: '#6e7681' }}>$ </span>
+                  <span style={{ color: '#6e7681' }}>$&nbsp;</span>
                   <span style={{ color: '#e6edf3' }}>{line.text}</span>
                 </div>
               );
@@ -441,7 +439,6 @@ export function CLIConsole({ open, onOpenChange }: CLIConsoleProps) {
                 </div>
               );
             }
-            // output
             return (
               <div key={i} className="whitespace-pre-wrap mt-0.5" style={{ color: '#c9d1d9' }}>
                 {line.text}
@@ -467,14 +464,22 @@ export function CLIConsole({ open, onOpenChange }: CLIConsoleProps) {
               autoComplete="off"
               autoCapitalize="none"
             />
-            {busy && <span className="text-[10px] ml-2 animate-pulse" style={{ color: '#8b949e' }}>running...</span>}
+            {busy && (
+              <span
+                className="text-[10px] ml-2 cursor-pointer animate-pulse"
+                style={{ color: '#8b949e' }}
+                title="Ctrl+C to cancel"
+              >
+                running… (Ctrl+C)
+              </span>
+            )}
           </form>
         </div>
 
         {/* Status bar */}
         <div className="flex items-center justify-between px-3 py-1 border-t" style={{ background: '#161b22', borderColor: '#30363d' }}>
           <span className="text-[10px] font-mono" style={{ color: '#6e7681' }}>
-            ↑↓ history · Tab complete · Ctrl+` toggle · exit to close
+            ↑↓ history · Tab complete · Ctrl+C cancel · exit to close
           </span>
           <span className="text-[10px] font-mono" style={{ color: '#3fb950' }}>● connected</span>
         </div>

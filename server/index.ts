@@ -23,6 +23,7 @@ import {
   deleteRule,
   getRecentAlerts,
 } from './suricata.js';
+import { dispatchCLI } from './cli.js';
 import { isSetupComplete, runSetupWizard } from './setup.js';
 import {
   checkIptablesAvailable,
@@ -254,6 +255,22 @@ async function startWebServer() {
   app.get('/api/system/ips/alerts', requireAuth, async (req, res) => {
     const limit = parseInt(req.query.limit as string) || 50;
     res.json({ alerts: await getRecentAlerts(limit) });
+  });
+
+  // ─────────────────────────────────────────────────
+  // CLI Execution — real Linux commands
+  // ─────────────────────────────────────────────────
+  app.post('/api/cli/exec', requireAuth, async (req, res) => {
+    const { command } = req.body;
+    if (!command || typeof command !== 'string') {
+      return res.status(400).json({ stdout: '', stderr: 'Missing command', exitCode: 1 });
+    }
+    try {
+      const result = await dispatchCLI(command.trim());
+      res.json(result);
+    } catch (e: any) {
+      res.json({ stdout: '', stderr: `Internal error: ${e.message}`, exitCode: 1 });
+    }
   });
 
   // ─────────────────────────────────────────────────
