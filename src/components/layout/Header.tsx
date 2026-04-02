@@ -289,8 +289,8 @@ export function Header() {
               className="flex items-center gap-2 px-3 h-10 hover:bg-white/10 transition-colors"
             >
               <div
-                className="w-6 h-6 flex items-center justify-center shrink-0 font-bold text-[11px] text-white select-none"
-                style={{ background: 'rgba(74,222,128,0.18)', border: '1px solid rgba(74,222,128,0.35)' }}
+                className="w-6 h-6 rounded-full flex items-center justify-center shrink-0 font-bold text-[11px] text-white select-none"
+                style={{ background: '#4a5568' }}
               >
                 {(user?.email?.[0] ?? 'A').toUpperCase()}
               </div>
