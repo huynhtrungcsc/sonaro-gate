@@ -91,9 +91,12 @@ export function Header() {
   const [cliOpen, setCliOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
   const navigate = useNavigate();
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const { signOut, user } = useAuth();
+
+  useEffect(() => { setUserMenuOpen(false); }, [location.pathname]);
 
   const toggleFullscreen = useCallback(() => {
     if (!document.fullscreenElement) {
@@ -279,41 +282,83 @@ export function Header() {
           <div className="w-px h-5 bg-white/15" />
 
           {/* User */}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button className="flex items-center gap-2 px-3 h-10 hover:bg-white/10 transition-colors">
-                <div className="w-6 h-6 rounded-full flex items-center justify-center shrink-0 font-bold text-[11px] text-white"
-                  style={{ background: '#4a5568' }}>
-                  {(user?.email?.[0] ?? 'A').toUpperCase()}
+          <div className="relative">
+            <button
+              data-testid="button-user-menu"
+              onClick={() => setUserMenuOpen(v => !v)}
+              className="flex items-center gap-2 px-3 h-10 hover:bg-white/10 transition-colors"
+            >
+              <div
+                className="w-6 h-6 flex items-center justify-center shrink-0 font-bold text-[11px] text-white select-none"
+                style={{ background: 'rgba(74,222,128,0.18)', border: '1px solid rgba(74,222,128,0.35)' }}
+              >
+                {(user?.email?.[0] ?? 'A').toUpperCase()}
+              </div>
+              <span className="text-[11px] text-white font-medium hidden sm:block">
+                {user?.email?.split('@')[0] || 'admin'}
+              </span>
+              <ChevronDown size={10} className={cn("text-white/50 transition-transform duration-150", userMenuOpen && "rotate-180")} />
+            </button>
+
+            {userMenuOpen && (
+              <>
+                {/* invisible backdrop to close on outside click */}
+                <div className="fixed inset-0 z-40" onClick={() => setUserMenuOpen(false)} />
+
+                <div
+                  className="absolute right-0 top-full z-50 min-w-[210px] border border-[#2a5c35] shadow-xl"
+                  style={{ background: '#fff' }}
+                >
+                  {/* Account header — matches header gradient */}
+                  <div
+                    className="px-3 py-2.5 border-b border-[#2a5c35]"
+                    style={{ background: 'linear-gradient(90deg, #155724 0%, #1e7a36 100%)' }}
+                  >
+                    <div className="text-[9px] font-mono tracking-widest text-white/45 uppercase mb-0.5">
+                      Administrator
+                    </div>
+                    <div className="text-[11px] font-mono text-white/90">
+                      {user?.email || 'admin@sonaro.local'}
+                    </div>
+                  </div>
+
+                  {/* Menu items */}
+                  <Link
+                    to="/system/admins"
+                    onClick={() => setUserMenuOpen(false)}
+                    className="flex items-center gap-2.5 px-3 py-2 text-[11px] text-[#222] hover:bg-[#f0f6f1] border-b border-[#ebebeb] transition-colors"
+                  >
+                    <User size={12} className="text-[#555] shrink-0" />
+                    Profile
+                  </Link>
+                  <Link
+                    to="/system/general"
+                    onClick={() => setUserMenuOpen(false)}
+                    className="flex items-center gap-2.5 px-3 py-2 text-[11px] text-[#222] hover:bg-[#f0f6f1] border-b border-[#ebebeb] transition-colors"
+                  >
+                    <Settings size={12} className="text-[#555] shrink-0" />
+                    System Settings
+                  </Link>
+                  <button
+                    onClick={() => setUserMenuOpen(false)}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 text-[11px] text-[#222] hover:bg-[#f0f6f1] border-b border-[#ebebeb] transition-colors"
+                  >
+                    <Key size={12} className="text-[#555] shrink-0" />
+                    Change Password
+                  </button>
+                  <div className="h-px bg-[#e0e0e0]" />
+                  <button
+                    data-testid="button-logout"
+                    onClick={() => { setUserMenuOpen(false); handleLogout(); }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 text-[11px] text-red-600 hover:bg-red-50 transition-colors"
+                  >
+                    <LogOut size={12} className="shrink-0" />
+                    Logout
+                  </button>
                 </div>
-                <span className="text-[11px] text-white font-medium hidden sm:block">{user?.email?.split('@')[0] || 'admin'}</span>
-                <ChevronDown size={10} className="text-white/50" />
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-52">
-              <DropdownMenuLabel className="text-[10px] text-muted-foreground font-normal">
-                {user?.email || 'admin@sonaro.local'}
-              </DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem asChild>
-                <Link to="/system/admins" className="flex items-center gap-2 cursor-pointer text-[11px]">
-                  <User size={12} /><span>Profile</span>
-                </Link>
-              </DropdownMenuItem>
-              <DropdownMenuItem asChild>
-                <Link to="/system/general" className="flex items-center gap-2 cursor-pointer text-[11px]">
-                  <Settings size={12} /><span>System Settings</span>
-                </Link>
-              </DropdownMenuItem>
-              <DropdownMenuItem className="flex items-center gap-2 cursor-pointer text-[11px]">
-                <Key size={12} /><span>Change Password</span>
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={handleLogout} className="flex items-center gap-2 cursor-pointer text-[11px] text-red-600 focus:text-red-600">
-                <LogOut size={12} /><span>Logout</span>
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+              </>
+            )}
+          </div>
         </div>
       </header>
 
