@@ -20,6 +20,8 @@ export const users = pgTable('users', {
   full_name: text('full_name').notNull().default(''),
   password_hash: text('password_hash').notNull(),
   avatar_url: text('avatar_url'),
+  mfa_enabled: boolean('mfa_enabled').notNull().default(false),
+  mfa_secret: text('mfa_secret'),
   created_at: timestamp('created_at', { withTimezone: true }).notNull().default(now()),
   updated_at: timestamp('updated_at', { withTimezone: true }).notNull().default(now()),
 });

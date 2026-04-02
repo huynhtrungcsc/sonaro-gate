@@ -5,8 +5,8 @@ import type { Request, Response, NextFunction } from 'express';
 const JWT_SECRET = process.env.JWT_SECRET || 'sonaro-gate-secret-change-in-production';
 const JWT_EXPIRES = '24h';
 
-export function signToken(payload: object): string {
-  return jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRES });
+export function signToken(payload: object, expiresIn: string = JWT_EXPIRES): string {
+  return jwt.sign(payload, JWT_SECRET, { expiresIn } as any);
 }
 
 export function verifyToken(token: string): any {
@@ -33,5 +33,19 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
     next();
   } catch {
     return res.status(401).json({ message: 'Invalid or expired token' });
+  }
+}
+
+export function signMfaChallenge(userId: string): string {
+  return signToken({ sub: userId, purpose: 'mfa_challenge' }, '5m');
+}
+
+export function verifyMfaChallenge(token: string): string | null {
+  try {
+    const decoded: any = verifyToken(token);
+    if (decoded.purpose !== 'mfa_challenge') return null;
+    return decoded.sub as string;
+  } catch {
+    return null;
   }
 }

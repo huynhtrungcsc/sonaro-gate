@@ -14,7 +14,9 @@ import { createServer as createHttpServer } from 'http';
 import { attachWebSocket } from './ws.js';
 import { db } from './db.js';
 import { users, userRoles, networkInterfaces, systemSettings, firewallRules, natRules, aliases, schedules, certificates, staticRoutes, vpnTunnels, configBackups } from '../shared/schema.js';
-import { signToken, checkPassword, requireAuth } from './auth.js';
+import { signToken, checkPassword, requireAuth, signMfaChallenge, verifyMfaChallenge } from './auth.js';
+import * as OTPAuth from 'otpauth';
+import QRCode from 'qrcode';
 import { createCrudRouter } from './postgrest.js';
 import { startAgent } from './agent.js';
 import { seedDatabase } from './seed.js';
@@ -89,12 +91,125 @@ async function startWebServer() {
       if (!user || !checkPassword(p_password, user.password_hash)) {
         return res.status(401).json({ message: 'Invalid login credentials' });
       }
+      // If MFA is enabled, issue a short-lived challenge token
+      if (user.mfa_enabled && user.mfa_secret) {
+        const mfaToken = signMfaChallenge(user.id);
+        return res.json({ mfa_required: true, mfa_token: mfaToken });
+      }
       const roles = await db.select().from(userRoles).where(eq(userRoles.user_id, user.id));
       const roleNames = roles.map(r => r.role);
       const token = signToken({ sub: user.id, email: user.email, full_name: user.full_name, roles: roleNames });
       res.json({ token, user_id: user.id, email: user.email, full_name: user.full_name, roles: roleNames });
     } catch (err: any) {
       console.error('[Auth] Login error:', err.message);
+      res.status(500).json({ message: 'Internal server error' });
+    }
+  });
+
+  // ── MFA: verify TOTP during login (step 2) ────────
+  app.post('/api/auth/mfa/verify', async (req, res) => {
+    const { mfa_token, code } = req.body;
+    if (!mfa_token || !code) {
+      return res.status(400).json({ message: 'mfa_token and code required' });
+    }
+    const userId = verifyMfaChallenge(mfa_token);
+    if (!userId) {
+      return res.status(401).json({ message: 'Invalid or expired MFA challenge' });
+    }
+    try {
+      const [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+      if (!user || !user.mfa_enabled || !user.mfa_secret) {
+        return res.status(401).json({ message: 'MFA not configured for this account' });
+      }
+      const totp = new OTPAuth.TOTP({ secret: OTPAuth.Secret.fromBase32(user.mfa_secret), digits: 6, period: 30 });
+      const delta = totp.validate({ token: code.replace(/\s/g, ''), window: 1 });
+      if (delta === null) {
+        return res.status(401).json({ message: 'Invalid authentication code' });
+      }
+      const roles = await db.select().from(userRoles).where(eq(userRoles.user_id, user.id));
+      const roleNames = roles.map(r => r.role);
+      const token = signToken({ sub: user.id, email: user.email, full_name: user.full_name, roles: roleNames });
+      res.json({ token, user_id: user.id, email: user.email, full_name: user.full_name, roles: roleNames });
+    } catch (err: any) {
+      console.error('[MFA] Verify error:', err.message);
+      res.status(500).json({ message: 'Internal server error' });
+    }
+  });
+
+  // ── MFA: get current status ────────────────────────
+  app.get('/api/auth/mfa/status', requireAuth, async (req, res) => {
+    const userId = (req as any).user.sub;
+    try {
+      const [user] = await db.select({ mfa_enabled: users.mfa_enabled }).from(users).where(eq(users.id, userId)).limit(1);
+      res.json({ mfa_enabled: user?.mfa_enabled ?? false });
+    } catch (err: any) {
+      res.status(500).json({ message: 'Internal server error' });
+    }
+  });
+
+  // ── MFA: generate setup (secret + QR code) ────────
+  app.post('/api/auth/mfa/setup', requireAuth, async (req, res) => {
+    const userId = (req as any).user.sub;
+    const email = (req as any).user.email;
+    try {
+      const secret = new OTPAuth.Secret({ size: 20 });
+      const totp = new OTPAuth.TOTP({
+        issuer: 'Sonaro Gate',
+        label: email,
+        algorithm: 'SHA1',
+        digits: 6,
+        period: 30,
+        secret,
+      });
+      const otpAuthUrl = totp.toString();
+      const qrDataUrl = await QRCode.toDataURL(otpAuthUrl);
+      // Store the pending secret in a temp field (reuse mfa_secret, not enabled yet)
+      await db.update(users).set({ mfa_secret: secret.base32, mfa_enabled: false }).where(eq(users.id, userId));
+      res.json({ secret: secret.base32, qr: qrDataUrl, otpauth_url: otpAuthUrl });
+    } catch (err: any) {
+      console.error('[MFA] Setup error:', err.message);
+      res.status(500).json({ message: 'Internal server error' });
+    }
+  });
+
+  // ── MFA: confirm setup (verify first code, enable) ──
+  app.post('/api/auth/mfa/confirm', requireAuth, async (req, res) => {
+    const userId = (req as any).user.sub;
+    const { code } = req.body;
+    if (!code) return res.status(400).json({ message: 'code required' });
+    try {
+      const [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+      if (!user || !user.mfa_secret) {
+        return res.status(400).json({ message: 'MFA setup not initiated. Call /api/auth/mfa/setup first.' });
+      }
+      const totp = new OTPAuth.TOTP({ secret: OTPAuth.Secret.fromBase32(user.mfa_secret), digits: 6, period: 30 });
+      const delta = totp.validate({ token: code.replace(/\s/g, ''), window: 1 });
+      if (delta === null) {
+        return res.status(401).json({ message: 'Invalid code — check your authenticator app and try again' });
+      }
+      await db.update(users).set({ mfa_enabled: true, updated_at: new Date() }).where(eq(users.id, userId));
+      res.json({ success: true });
+    } catch (err: any) {
+      console.error('[MFA] Confirm error:', err.message);
+      res.status(500).json({ message: 'Internal server error' });
+    }
+  });
+
+  // ── MFA: disable ──────────────────────────────────
+  app.post('/api/auth/mfa/disable', requireAuth, async (req, res) => {
+    const userId = (req as any).user.sub;
+    const { password } = req.body;
+    if (!password) return res.status(400).json({ message: 'Current password required to disable MFA' });
+    try {
+      const [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+      if (!user) return res.status(404).json({ message: 'User not found' });
+      if (!checkPassword(password, user.password_hash)) {
+        return res.status(401).json({ message: 'Incorrect password' });
+      }
+      await db.update(users).set({ mfa_enabled: false, mfa_secret: null, updated_at: new Date() }).where(eq(users.id, userId));
+      res.json({ success: true });
+    } catch (err: any) {
+      console.error('[MFA] Disable error:', err.message);
       res.status(500).json({ message: 'Internal server error' });
     }
   });

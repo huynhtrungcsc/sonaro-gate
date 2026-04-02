@@ -45,6 +45,7 @@ import HighAvailability from "./pages/HighAvailability";
 import CertificateManagement from "./pages/CertificateManagement";
 import LogReport from "./pages/LogReport";
 import AdminProfiles from "./pages/AdminProfiles";
+import AccountSecurity from "./pages/AccountSecurity";
 import VirtualIPs from "./pages/VirtualIPs";
 import IPPools from "./pages/IPPools";
 import TrafficShapers from "./pages/TrafficShapers";
@@ -150,6 +151,7 @@ const App = () => (
             <Route path="/system/full-backup" element={<P><SystemBackup /></P>} />
             <Route path="/system/users" element={<Navigate to="/system/admins" replace />} />
             <Route path="/system/admins" element={<P><AdminProfiles /></P>} />
+            <Route path="/account/security" element={<P><AccountSecurity /></P>} />
             <Route path="/system/admin-profiles" element={<Navigate to="/system/admins" replace />} />
             <Route path="/system/ha" element={<P><HighAvailability /></P>} />
             <Route path="/system/certificates" element={<P><CertificateManagement /></P>} />

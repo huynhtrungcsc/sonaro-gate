@@ -339,13 +339,14 @@ export function Header() {
                     <Settings size={12} className="text-[#555] shrink-0" />
                     System Settings
                   </Link>
-                  <button
+                  <Link
+                    to="/account/security"
                     onClick={() => setUserMenuOpen(false)}
-                    className="w-full flex items-center gap-2.5 px-3 py-2 text-[11px] text-[#222] hover:bg-[#f0f6f1] border-b border-[#ebebeb] transition-colors"
+                    className="flex items-center gap-2.5 px-3 py-2 text-[11px] text-[#222] hover:bg-[#f0f6f1] border-b border-[#ebebeb] transition-colors"
                   >
                     <Key size={12} className="text-[#555] shrink-0" />
-                    Change Password
-                  </button>
+                    Account Security / MFA
+                  </Link>
                   <div className="h-px bg-[#e0e0e0]" />
                   <button
                     data-testid="button-logout"

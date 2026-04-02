@@ -235,7 +235,12 @@ class QueryBuilder<T = any> {
 
 // ─── Auth API ───────────────────────────────────
 export const authApi = {
-  async signIn(email: string, password: string): Promise<{ error: Error | null; session: AuthSession | null }> {
+  async signIn(email: string, password: string): Promise<{
+    error: Error | null;
+    session: AuthSession | null;
+    mfaRequired?: boolean;
+    mfaToken?: string;
+  }> {
     if (!API_URL) {
       // Demo/mock mode: accept default credentials
       if (email === 'admin@sonaro.local' && password === 'Admin123!') {
@@ -250,14 +255,35 @@ export const authApi = {
       return { error: new Error('Invalid login credentials'), session: null };
     }
 
-    // Call PostgREST RPC function
     const { data, error } = await request<any>('/rpc/authenticate', {
       method: 'POST',
       body: JSON.stringify({ p_email: email, p_password: password }),
     });
     if (error) return { error, session: null };
-    if (!data || !data.token) return { error: new Error('Invalid login credentials'), session: null };
+    if (!data) return { error: new Error('Invalid login credentials'), session: null };
 
+    // MFA challenge
+    if (data.mfa_required) {
+      return { error: null, session: null, mfaRequired: true, mfaToken: data.mfa_token };
+    }
+
+    if (!data.token) return { error: new Error('Invalid login credentials'), session: null };
+    const session: AuthSession = {
+      token: data.token,
+      user: { id: data.user_id, email: data.email, full_name: data.full_name },
+      roles: data.roles ?? [],
+    };
+    storeSession(session);
+    return { error: null, session };
+  },
+
+  async verifyMfa(mfaToken: string, code: string): Promise<{ error: Error | null; session: AuthSession | null }> {
+    const { data, error } = await request<any>('/auth/mfa/verify', {
+      method: 'POST',
+      body: JSON.stringify({ mfa_token: mfaToken, code }),
+    });
+    if (error) return { error, session: null };
+    if (!data?.token) return { error: new Error('Invalid code'), session: null };
     const session: AuthSession = {
       token: data.token,
       user: { id: data.user_id, email: data.email, full_name: data.full_name },
@@ -273,6 +299,37 @@ export const authApi = {
 
   getSession(): AuthSession | null {
     return getStoredSession();
+  },
+};
+
+// ─── MFA Management API ─────────────────────────
+export const mfaApi = {
+  async getStatus(): Promise<{ mfa_enabled: boolean }> {
+    const { data } = await request<any>('/auth/mfa/status');
+    return { mfa_enabled: data?.mfa_enabled ?? false };
+  },
+
+  async setup(): Promise<{ secret: string; qr: string; otpauth_url: string } | null> {
+    const { data } = await request<any>('/auth/mfa/setup', { method: 'POST' });
+    return data;
+  },
+
+  async confirm(code: string): Promise<{ success: boolean; error?: string }> {
+    const { data, error } = await request<any>('/auth/mfa/confirm', {
+      method: 'POST',
+      body: JSON.stringify({ code }),
+    });
+    if (error) return { success: false, error: error.message };
+    return { success: true };
+  },
+
+  async disable(password: string): Promise<{ success: boolean; error?: string }> {
+    const { data, error } = await request<any>('/auth/mfa/disable', {
+      method: 'POST',
+      body: JSON.stringify({ password }),
+    });
+    if (error) return { success: false, error: error.message };
+    return { success: true };
   },
 };
 

@@ -6,7 +6,8 @@ interface AuthContextType {
   session: AuthSession | null;
   roles: AppRole[];
   loading: boolean;
-  signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
+  signIn: (email: string, password: string) => Promise<{ error: Error | null; mfaRequired?: boolean; mfaToken?: string }>;
+  completeMfa: (mfaToken: string, code: string) => Promise<{ error: Error | null }>;
   signUp: (email: string, password: string, fullName: string) => Promise<{ error: Error | null }>;
   signOut: () => Promise<void>;
   hasRole: (role: AppRole) => boolean;
@@ -34,7 +35,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signIn = async (email: string, password: string) => {
-    const { error, session: newSession } = await authApi.signIn(email, password);
+    const { error, session: newSession, mfaRequired, mfaToken } = await authApi.signIn(email, password);
+    if (error) return { error };
+    if (mfaRequired) return { error: null, mfaRequired: true, mfaToken };
+    if (newSession) {
+      setSession(newSession);
+      setUser(newSession.user);
+      setRoles(newSession.roles);
+    }
+    return { error: null };
+  };
+
+  const completeMfa = async (mfaToken: string, code: string) => {
+    const { error, session: newSession } = await authApi.verifyMfa(mfaToken, code);
     if (error) return { error };
     if (newSession) {
       setSession(newSession);
@@ -67,6 +80,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       roles,
       loading,
       signIn,
+      completeMfa,
       signUp,
       signOut,
       hasRole,

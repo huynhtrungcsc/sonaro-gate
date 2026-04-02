@@ -57,8 +57,12 @@ export default function Auth() {
   const [btnState, setBtnState]         = useState<'idle'|'hover'|'active'>('idle');
   const [lastSession, setLastSession]   = useState<{ time: string; ip: string } | null>(null);
   const [clientIp, setClientIp]         = useState<string>('');
+  const [mfaStep, setMfaStep]           = useState(false);
+  const [mfaToken, setMfaToken]         = useState('');
+  const [mfaCode, setMfaCode]           = useState('');
+  const [mfaFocus, setMfaFocus]         = useState(false);
 
-  const { signIn, user } = useAuth();
+  const { signIn, completeMfa, user } = useAuth();
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -92,19 +96,45 @@ export default function Auth() {
         setSubmitting(false);
         return;
       }
-      const { error } = await signIn(email, password);
-      if (error) {
-        if (error.message.includes('Invalid login')) toast.error('Invalid credentials. Access denied.');
-        else if (error.message.includes('Email not confirmed')) toast.error('Account not confirmed. Contact your administrator.');
-        else toast.error(error.message);
+      const result = await signIn(email, password);
+      if (result.error) {
+        if (result.error.message.includes('Invalid login')) toast.error('Invalid credentials. Access denied.');
+        else if (result.error.message.includes('Email not confirmed')) toast.error('Account not confirmed. Contact your administrator.');
+        else toast.error(result.error.message);
         setSubmitting(false);
         return;
       }
-      // Persist session info for next login display
+      if (result.mfaRequired && result.mfaToken) {
+        setMfaToken(result.mfaToken);
+        setMfaStep(true);
+        setSubmitting(false);
+        return;
+      }
       localStorage.setItem(LS_KEY, JSON.stringify({ time: new Date().toISOString(), ip: clientIp }));
       navigate('/', { replace: true });
     } catch {
       toast.error('Authentication service unavailable. Try again.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleMfaSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!mfaCode.trim()) return;
+    setSubmitting(true);
+    try {
+      const { error } = await completeMfa(mfaToken, mfaCode.replace(/\s/g, ''));
+      if (error) {
+        toast.error(error.message.includes('Invalid') ? 'Invalid code — check your authenticator app.' : error.message);
+        setMfaCode('');
+        setSubmitting(false);
+        return;
+      }
+      localStorage.setItem(LS_KEY, JSON.stringify({ time: new Date().toISOString(), ip: clientIp }));
+      navigate('/', { replace: true });
+    } catch {
+      toast.error('Verification failed. Try again.');
     } finally {
       setSubmitting(false);
     }
@@ -164,15 +194,86 @@ export default function Auth() {
               background: C.surfaceHdr,
             }}>
               <p style={{ fontSize: 15, fontWeight: 700, color: C.textPrimary, margin: 0, letterSpacing: '0.01em' }}>
-                Sign in to Sonaro Gate
+                {mfaStep ? 'Two-Factor Authentication' : 'Sign in to Sonaro Gate'}
               </p>
               <p style={{ fontSize: 11, color: C.textSub, margin: '4px 0 0', letterSpacing: '0.01em' }}>
-                Enter your credentials to access the management console
+                {mfaStep ? 'Enter the 6-digit code from your authenticator app' : 'Enter your credentials to access the management console'}
               </p>
             </div>
 
+            {/* ── TOTP step ─────────────────────────────────────────── */}
+            {mfaStep && (
+              <form onSubmit={handleMfaSubmit} style={{ padding: '28px 32px', display: 'flex', flexDirection: 'column', gap: 20 }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: 10, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', color: C.textSub, marginBottom: 7 }}>
+                    Authentication Code
+                  </label>
+                  <div style={{ position: 'relative' }}>
+                    <ShieldCheck style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', width: 14, height: 14, color: C.textMuted, pointerEvents: 'none' }} />
+                    <input
+                      data-testid="input-mfa-code"
+                      type="text"
+                      inputMode="numeric"
+                      autoComplete="one-time-code"
+                      autoFocus
+                      value={mfaCode}
+                      onChange={e => setMfaCode(e.target.value.replace(/[^0-9]/g, '').slice(0, 6))}
+                      onFocus={() => setMfaFocus(true)}
+                      onBlur={() => setMfaFocus(false)}
+                      placeholder="000000"
+                      maxLength={6}
+                      style={{
+                        width: '100%', boxSizing: 'border-box',
+                        padding: '10px 12px 10px 38px',
+                        fontSize: 20, fontWeight: 700, letterSpacing: '0.3em', color: C.textPrimary,
+                        background: C.pageBg,
+                        border: `1px solid ${mfaFocus ? C.borderFocus : C.border}`,
+                        borderRadius: 5, outline: 'none',
+                        transition: 'border-color 0.15s',
+                        textAlign: 'center',
+                      }}
+                    />
+                  </div>
+                  <p style={{ fontSize: 10, color: C.textMuted, marginTop: 7 }}>
+                    Code resets every 30 seconds. If expired, wait for the next code.
+                  </p>
+                </div>
+                <button
+                  data-testid="button-mfa-verify"
+                  type="submit"
+                  disabled={submitting || mfaCode.length !== 6}
+                  onMouseEnter={() => setBtnState('hover')}
+                  onMouseLeave={() => setBtnState('idle')}
+                  onMouseDown={() => setBtnState('active')}
+                  onMouseUp={() => setBtnState('hover')}
+                  style={{
+                    width: '100%', marginTop: 4,
+                    padding: '11px 16px',
+                    fontSize: 13, fontWeight: 700, letterSpacing: '0.04em',
+                    color: '#ffffff',
+                    background: (submitting || mfaCode.length !== 6) ? C.greenActive : btnBg,
+                    border: `1px solid ${C.green}`,
+                    borderRadius: 5,
+                    cursor: (submitting || mfaCode.length !== 6) ? 'not-allowed' : 'pointer',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7,
+                    transition: 'background 0.1s',
+                  }}
+                >
+                  <ShieldCheck style={{ width: 14, height: 14 }} />
+                  {submitting ? 'Verifying…' : 'Verify Code'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setMfaStep(false); setMfaCode(''); setMfaToken(''); }}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: C.textMuted, textDecoration: 'underline', padding: 0 }}
+                >
+                  ← Back to login
+                </button>
+              </form>
+            )}
+
             {/* Form body */}
-            <form onSubmit={handleSubmit} style={{ padding: '28px 32px', display: 'flex', flexDirection: 'column', gap: 20 }}>
+            {!mfaStep && <form onSubmit={handleSubmit} style={{ padding: '28px 32px', display: 'flex', flexDirection: 'column', gap: 20 }}>
 
               {/* Email field */}
               <div>
@@ -281,7 +382,7 @@ export default function Auth() {
                 }
                 {submitting ? 'Authenticating…' : 'Sign In'}
               </button>
-            </form>
+            </form>}
 
             {/* Security context footer */}
             <div style={{
