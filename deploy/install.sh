@@ -63,11 +63,18 @@ JWT_SECRET="${JWT_SECRET:-$(openssl rand -hex 32)}"
 COMPOSE_FILE="${INSTALL_DIR}/deploy/docker-compose.prod.yml"
 
 # ── Docker Compose helper ──────────────────────────────────────────────────────
-# Always use --project-directory so Docker Compose resolves .env from INSTALL_DIR
-# (not from CWD, and not from the compose file's directory).
-# This is the ONLY correct way to run docker compose for this project.
-# Every "docker compose" call in this script MUST go through this variable.
-DC="docker compose --project-directory ${INSTALL_DIR} -f ${COMPOSE_FILE}"
+# IMPORTANT: Do NOT use --project-directory here.
+#   --project-directory changes how Docker Compose resolves ALL relative paths
+#   inside the compose file (context:, volume mounts, etc.).
+#   The compose file uses "context: .." which is relative to its own location
+#   (deploy/ → parent = /opt/sonaro). With --project-directory /opt/sonaro,
+#   ".." would resolve to "/" (filesystem root) — wrong Dockerfile, build fails.
+#
+# Instead: use -f <absolute-path> + --env-file <absolute-path>.
+#   -f with an absolute path makes Docker Compose resolve compose-file-relative
+#   paths from the compose file's directory (deploy/) — so "context: .." → /opt/sonaro ✓
+#   --env-file with an absolute path loads .env from the correct location ✓
+DC="docker compose -f ${COMPOSE_FILE} --env-file ${INSTALL_DIR}/.env"
 
 # ── UFW helper ────────────────────────────────────────────────────────────────
 ufw_is_active() {
@@ -394,7 +401,7 @@ print_post_install_guide() {
     local _lan_ip="$3"
 
     # The canonical docker compose command prefix to show users
-    local SHOW_DC="docker compose --project-directory ${INSTALL_DIR} -f ${COMPOSE_FILE}"
+    local SHOW_DC="docker compose -f ${COMPOSE_FILE} --env-file ${INSTALL_DIR}/.env"
 
     echo ""
     echo -e "${BOLD}${GREEN}"
