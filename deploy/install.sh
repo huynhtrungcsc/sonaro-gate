@@ -545,12 +545,171 @@ print_post_install_guide() {
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
+# SHARED — Host network stack (runs in BOTH docker and native modes)
+# Installs WireGuard, Suricata, OpenVPN, enables IP forwarding, loads kernel
+# modules, and downloads the latest IDS/IPS threat signatures.
+# The Docker app container (privileged + host network) talks directly to these
+# host-level services, so they must be present regardless of install method.
+# ─────────────────────────────────────────────────────────────────────────────
+install_host_network_stack() {
+    local _step="$1"   # e.g. "Step 3/7"
+
+    step "${_step} — Host network stack (VPN, IDS/IPS, IP forwarding)"
+    export DEBIAN_FRONTEND=noninteractive
+
+    # ── Core networking tools ──────────────────────────────────────────────────
+    info "Installing core networking packages..."
+    apt-get update -qq
+    apt-get install -y -qq \
+        iproute2 \
+        iptables \
+        iptables-persistent \
+        netfilter-persistent \
+        ipset \
+        nftables \
+        conntrack \
+        tcpdump \
+        openssl \
+        jq 2>/dev/null || true
+    ok "Core networking tools installed"
+
+    # ── WireGuard VPN ─────────────────────────────────────────────────────────
+    info "Installing WireGuard VPN..."
+    apt-get install -y -qq wireguard wireguard-tools
+    # Create WireGuard config directory with correct permissions
+    mkdir -p /etc/wireguard
+    chmod 700 /etc/wireguard
+    # Load the kernel module immediately
+    modprobe wireguard 2>/dev/null \
+        && ok "WireGuard VPN installed ($(wg --version 2>/dev/null | head -1 || echo 'installed'))" \
+        || warn "WireGuard module load failed — may need kernel headers (wireguard-dkms)"
+
+    # ── OpenVPN ───────────────────────────────────────────────────────────────
+    info "Installing OpenVPN..."
+    if apt-get install -y -qq openvpn 2>/dev/null; then
+        mkdir -p /etc/openvpn/server /etc/openvpn/client
+        # Stop the default OpenVPN service — Sonaro Gate manages the process
+        systemctl disable --now openvpn 2>/dev/null || true
+        ok "OpenVPN installed ($(openvpn --version 2>/dev/null | head -1 | awk '{print $2}' || echo 'installed'))"
+    else
+        warn "OpenVPN not available in repository — skipping (optional)"
+    fi
+
+    # ── Suricata IDS/IPS ──────────────────────────────────────────────────────
+    info "Installing Suricata IDS/IPS engine..."
+    apt-get install -y -qq suricata suricata-update
+
+    # Create directory structure expected by Sonaro Gate
+    mkdir -p /etc/suricata/rules
+    mkdir -p /var/log/suricata
+
+    # Copy default config if it doesn't exist yet
+    [[ ! -f /etc/suricata/suricata.yaml ]] && \
+        cp /etc/suricata/suricata.yaml.dist /etc/suricata/suricata.yaml 2>/dev/null || true
+
+    # Create an empty local rules file so Suricata won't complain
+    touch /etc/suricata/rules/sonaro-local.rules
+
+    # Download latest threat signatures (Emerging Threats Open)
+    info "Downloading IDS/IPS threat signatures (Emerging Threats Open)..."
+    if suricata-update --no-reload 2>/dev/null; then
+        local sig_count
+        sig_count=$(find /var/lib/suricata/rules -name "*.rules" -exec cat {} \; 2>/dev/null \
+            | grep -c "^alert" 2>/dev/null || echo "?")
+        ok "Suricata signatures updated — ${sig_count} rules loaded"
+    else
+        warn "suricata-update failed — signatures will update automatically on first run"
+        warn "  Manual fix: sudo suricata-update && sudo systemctl restart suricata"
+    fi
+
+    # Disable default Suricata service — Sonaro Gate starts/stops it via API
+    systemctl disable --now suricata 2>/dev/null || true
+    ok "Suricata IDS/IPS installed and ready (managed by Sonaro Gate)"
+
+    # ── dnsmasq (internal DNS for VPN/DHCP) ───────────────────────────────────
+    if apt-get install -y -qq dnsmasq 2>/dev/null; then
+        systemctl disable --now dnsmasq 2>/dev/null || true
+        ok "dnsmasq installed (managed by Sonaro Gate)"
+    fi
+
+    # ── Kernel: IP forwarding + connection tracking ────────────────────────────
+    info "Configuring kernel for firewall operation..."
+
+    # Apply immediately
+    sysctl -w net.ipv4.ip_forward=1                            >/dev/null 2>&1
+    sysctl -w net.ipv6.conf.all.forwarding=1                   >/dev/null 2>&1
+    sysctl -w net.ipv4.conf.all.rp_filter=0                    >/dev/null 2>&1
+    sysctl -w net.ipv4.conf.default.rp_filter=0                >/dev/null 2>&1
+    sysctl -w net.netfilter.nf_conntrack_max=1048576            >/dev/null 2>&1 || true
+    sysctl -w net.netfilter.nf_conntrack_tcp_timeout_established=3600 >/dev/null 2>&1 || true
+
+    # Persist across reboots
+    cat > /etc/sysctl.d/99-sonaro.conf <<'SYSCTL'
+# ── Sonaro Gate — kernel network settings ────────────────────────────────────
+# IP Forwarding (required for routing between interfaces)
+net.ipv4.ip_forward=1
+net.ipv6.conf.all.forwarding=1
+
+# Disable reverse path filtering (needed for asymmetric routing on a firewall)
+net.ipv4.conf.all.rp_filter=0
+net.ipv4.conf.default.rp_filter=0
+
+# Connection tracking table size (supports up to 1M concurrent connections)
+net.netfilter.nf_conntrack_max=1048576
+net.netfilter.nf_conntrack_tcp_timeout_established=3600
+net.netfilter.nf_conntrack_udp_timeout=60
+net.netfilter.nf_conntrack_udp_timeout_stream=120
+
+# Network buffer tuning for high-throughput firewall
+net.core.rmem_max=16777216
+net.core.wmem_max=16777216
+net.ipv4.tcp_rmem=4096 87380 16777216
+net.ipv4.tcp_wmem=4096 65536 16777216
+SYSCTL
+
+    sysctl -p /etc/sysctl.d/99-sonaro.conf >/dev/null 2>&1
+    ok "IP forwarding and connection tracking configured"
+
+    # ── Load kernel modules ────────────────────────────────────────────────────
+    info "Loading required kernel modules..."
+    local _loaded=0 _failed=0
+    for _mod in nf_conntrack nf_nat ip_tables ip6_tables \
+                xt_state xt_conntrack xt_MASQUERADE xt_REDIRECT \
+                xt_tcpudp xt_limit xt_LOG \
+                wireguard tun; do
+        if modprobe "$_mod" 2>/dev/null; then
+            _loaded=$(( _loaded + 1 ))
+        else
+            _failed=$(( _failed + 1 ))
+        fi
+    done
+    ok "Kernel modules loaded (${_loaded} ok, ${_failed} skipped — normal on VMs)"
+
+    # Persist modules across reboots
+    cat > /etc/modules-load.d/sonaro.conf <<'MODULES'
+# Sonaro Gate — kernel modules loaded at boot
+nf_conntrack
+nf_nat
+ip_tables
+ip6_tables
+xt_state
+xt_conntrack
+xt_MASQUERADE
+wireguard
+tun
+MODULES
+
+    ok "Host network stack ready ✓"
+}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # DOCKER INSTALL
 # ─────────────────────────────────────────────────────────────────────────────
 install_docker_mode() {
 
     # ── Step 1: Docker Engine ─────────────────────────────────────────────────
-    step "Step 1/6 — Docker Engine"
+    step "Step 1/7 — Docker Engine"
 
     if command -v docker &>/dev/null && docker compose version &>/dev/null 2>&1; then
         ok "Docker $(docker --version | awk '{print $3}' | tr -d ',') already installed — skipping"
@@ -580,14 +739,19 @@ install_docker_mode() {
     fi
 
     # ── Step 2: Clone source ──────────────────────────────────────────────────
-    step "Step 2/6 — Download source"
+    step "Step 2/7 — Download source"
     apt-get install -y -qq git 2>/dev/null || true
     info "Cloning repository..."
     git clone --depth 1 "$REPO_URL" "$INSTALL_DIR"
     ok "Source ready at ${INSTALL_DIR}"
 
-    # ── Step 3: Write .env ────────────────────────────────────────────────────
-    step "Step 3/6 — Environment configuration"
+    # ── Step 3: Host network stack ─────────────────────────────────────────────
+    # Install WireGuard, OpenVPN, Suricata on the HOST — the privileged Docker
+    # container reaches these via the host network and host filesystem mounts.
+    install_host_network_stack "Step 3/7"
+
+    # ── Step 4: Write .env ────────────────────────────────────────────────────
+    step "Step 4/7 — Environment configuration"
 
     cat > "${INSTALL_DIR}/.env" <<ENV
 # Sonaro Gate — Environment Configuration
@@ -610,12 +774,12 @@ ENV
     chmod 600 "${INSTALL_DIR}/.env"
     ok ".env written and protected (chmod 600)"
 
-    # ── Step 4: Open firewall ports ────────────────────────────────────────────
-    step "Step 4/6 — Opening firewall port ${PORT}"
+    # ── Step 5: Open firewall ports ────────────────────────────────────────────
+    step "Step 5/7 — Opening firewall port ${PORT}"
     open_firewall_ports "$PORT"
 
-    # ── Step 5: Build and start ────────────────────────────────────────────────
-    step "Step 5/6 — Build Docker image and start containers"
+    # ── Step 6: Build and start ────────────────────────────────────────────────
+    step "Step 6/7 — Build Docker image and start containers"
 
     info "Building Docker image (compiles TypeScript + React frontend)..."
     info "First run takes 3–5 minutes — please wait..."
@@ -631,8 +795,8 @@ ENV
     $DC up -d </dev/null
     ok "Containers started"
 
-    # ── Step 6: Health check ───────────────────────────────────────────────────
-    step "Step 6/6 — Waiting for application to become ready"
+    # ── Step 7: Health check ───────────────────────────────────────────────────
+    step "Step 7/7 — Waiting for application to become ready"
     info "Polling http://127.0.0.1:${PORT}/api/health (up to 3 minutes)..."
 
     local HEALTH_OK=0
@@ -673,20 +837,17 @@ install_native_mode() {
 
     export DEBIAN_FRONTEND=noninteractive
 
-    step "Step 1/7 — Installing system packages"
-    apt-get update -qq
+    # ── Step 1: Host network stack (WireGuard, OpenVPN, Suricata, IP forwarding)
+    install_host_network_stack "Step 1/7"
+
+    # ── Step 2: Extra native-mode system packages ──────────────────────────────
+    step "Step 2/7 — System packages (PostgreSQL, Node.js runtime)"
     apt-get install -y -qq \
         curl wget gnupg ca-certificates lsb-release \
-        iptables iptables-persistent netfilter-persistent \
-        iproute2 ipset netplan.io \
-        postgresql postgresql-client \
-        git build-essential \
-        suricata suricata-update \
-        wireguard wireguard-tools \
-        dnsmasq openssl jq
+        netplan.io postgresql postgresql-client \
+        git build-essential
     ok "System packages installed"
 
-    step "Step 2/7 — Node.js 20"
     if command -v node &>/dev/null && [[ "$(node -v 2>/dev/null)" == v20* ]]; then
         ok "Node.js $(node -v) already installed — skipping"
     else
@@ -706,17 +867,7 @@ install_native_mode() {
     npm run build
     ok "Application built at ${INSTALL_DIR}"
 
-    step "Step 4/7 — Kernel network settings"
-    sysctl -w net.ipv4.ip_forward=1 >/dev/null
-    {
-        echo "net.ipv4.ip_forward=1"
-        echo "net.ipv6.conf.all.forwarding=1"
-        echo "net.ipv4.conf.all.rp_filter=0"
-    } > /etc/sysctl.d/99-sonaro.conf
-    sysctl -p /etc/sysctl.d/99-sonaro.conf >/dev/null
-    ok "IP forwarding enabled and persisted"
-
-    step "Step 5/7 — PostgreSQL database"
+    step "Step 4/7 — PostgreSQL database"
     systemctl enable --now postgresql
     sleep 2
     sudo -u postgres psql -c "CREATE USER ${DB_USER} WITH PASSWORD '${DB_PASS}';" 2>/dev/null \
@@ -725,7 +876,7 @@ install_native_mode() {
     sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE ${DB_NAME} TO ${DB_USER};" 2>/dev/null || true
     ok "Database ${DB_NAME} ready"
 
-    step "Step 6/7 — Configuration and database schema"
+    step "Step 5/7 — Configuration and database schema"
     local DATABASE_URL="postgresql://${DB_USER}:${DB_PASS}@localhost:5432/${DB_NAME}"
 
     cat > "${INSTALL_DIR}/.env" <<ENV
@@ -749,14 +900,7 @@ ENV
     DATABASE_URL="$DATABASE_URL" npx tsx server/seed.ts
     ok "Database schema and initial data applied"
 
-    info "Configuring Suricata IPS..."
-    mkdir -p /etc/suricata/rules
-    touch /etc/suricata/rules/sonaro-local.rules
-    suricata-update --no-reload 2>/dev/null || warn "suricata-update failed (check internet)"
-    systemctl enable --now suricata 2>/dev/null || true
-    ok "Suricata configured"
-
-    step "Step 7/7 — Opening firewall port and starting service"
+    step "Step 6/7 — Opening firewall port and starting service"
     open_firewall_ports "$PORT"
 
     cp "${INSTALL_DIR}/deploy/sonaro-gate.service" /etc/systemd/system/
@@ -765,6 +909,30 @@ ENV
     systemctl start sonaro-gate
     sleep 3
     ok "sonaro-gate.service started and enabled on boot"
+
+    step "Step 7/7 — Waiting for application to become ready"
+    info "Polling http://127.0.0.1:${PORT}/api/health (up to 3 minutes)..."
+
+    local HEALTH_OK=0
+    for (( i=1; i<=36; i++ )); do
+        if curl -sf "http://127.0.0.1:${PORT}/api/health" &>/dev/null; then
+            ok "Application is ready! (after $((i*5)) seconds)"
+            HEALTH_OK=1
+            break
+        fi
+        printf "  Waiting... %ds elapsed\r" $((i*5))
+        sleep 5
+    done
+    echo ""
+
+    if [[ "$HEALTH_OK" -eq 0 ]]; then
+        warn "Health check timed out — showing service logs to diagnose:"
+        echo ""
+        echo -e "${YELLOW}═══════════════ sonaro-gate (last 60 lines) ════════════════${RESET}"
+        journalctl -u sonaro-gate -n 60 --no-pager 2>/dev/null || \
+            echo "  (service logs not available)"
+        echo -e "${YELLOW}═══════════════════════════════════════════════════════════${RESET}"
+    fi
 
     run_post_diagnostics "native" "$PORT"
     local LAN_IP

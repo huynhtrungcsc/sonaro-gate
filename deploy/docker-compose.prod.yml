@@ -72,8 +72,14 @@ services:
       - /etc/netplan:/etc/netplan
       - /etc/sysctl.d:/etc/sysctl.d
       - /etc/iptables:/etc/iptables
+      # IDS/IPS — Suricata runs on the host; container writes config + reads logs
       - /etc/suricata:/etc/suricata
       - /var/log/suricata:/var/log/suricata
+      - /var/lib/suricata:/var/lib/suricata:ro
+      # VPN — WireGuard and OpenVPN configs managed by container, run on host kernel
+      - /etc/wireguard:/etc/wireguard
+      - /etc/openvpn:/etc/openvpn
+      # Host kernel visibility (read-only)
       - /proc:/host/proc:ro
       - /sys:/host/sys:ro
 
