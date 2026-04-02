@@ -60,12 +60,6 @@ interface VirtualIP {
   sessions: number;
 }
 
-const initialVIPs: VirtualIP[] = [
-  { id: '1', name: 'WebServer-VIP', comments: 'Main web server virtual IP', type: 'static-nat', external_ip: '203.0.113.10', mapped_ip: '192.168.1.100', interface: 'wan1', protocol: 'TCP', external_port: '443', mapped_port: '443', enabled: true, sessions: 1247 },
-  { id: '2', name: 'MailServer-VIP', comments: 'Email server SMTP and IMAP', type: 'static-nat', external_ip: '203.0.113.11', mapped_ip: '192.168.1.101', interface: 'wan1', protocol: 'TCP', external_port: '25,143,993', mapped_port: '25,143,993', enabled: true, sessions: 89 },
-  { id: '3', name: 'FTP-VIP', comments: 'FTP server access', type: 'static-nat', external_ip: '203.0.113.12', mapped_ip: '192.168.1.102', interface: 'wan1', protocol: 'TCP', external_port: '21', mapped_port: '21', enabled: false, sessions: 0 },
-  { id: '4', name: 'LoadBalancer-VIP', comments: 'Load balanced web servers', type: 'load-balance', external_ip: '203.0.113.20', mapped_ip: '192.168.1.110-115', interface: 'wan1', protocol: 'TCP', external_port: '80,443', mapped_port: '80,443', enabled: true, sessions: 3521 },
-];
 
 interface SortableVIPRowProps {
   vip: VirtualIP;

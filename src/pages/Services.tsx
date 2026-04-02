@@ -74,21 +74,6 @@ interface ServiceObject {
   is_system: boolean;
 }
 
-const initialServices: ServiceObject[] = [
-  { id: '1', name: 'HTTP', category: 'Web Access', protocol: 'TCP', dest_ports: '80', source_ports: '1-65535', comment: 'Hypertext Transfer Protocol', references: 12, references_count: 12, is_system: true },
-  { id: '2', name: 'HTTPS', category: 'Web Access', protocol: 'TCP', dest_ports: '443', source_ports: '1-65535', comment: 'HTTP Secure', references: 15, references_count: 15, is_system: true },
-  { id: '3', name: 'SSH', category: 'Remote Access', protocol: 'TCP', dest_ports: '22', source_ports: '1-65535', comment: 'Secure Shell', references: 8, references_count: 8, is_system: true },
-  { id: '4', name: 'FTP', category: 'File Access', protocol: 'TCP', dest_ports: '21', source_ports: '1-65535', comment: 'File Transfer Protocol', references: 3, references_count: 3, is_system: true },
-  { id: '5', name: 'DNS', category: 'Network Services', protocol: 'TCP/UDP', dest_ports: '53', source_ports: '1-65535', comment: 'Domain Name System', references: 10, references_count: 10, is_system: true },
-  { id: '6', name: 'SMTP', category: 'Email', protocol: 'TCP', dest_ports: '25', source_ports: '1-65535', comment: 'Simple Mail Transfer Protocol', references: 4, references_count: 4, is_system: true },
-  { id: '7', name: 'IMAP', category: 'Email', protocol: 'TCP', dest_ports: '143,993', source_ports: '1-65535', comment: 'Internet Message Access Protocol', references: 2, references_count: 2, is_system: true },
-  { id: '8', name: 'POP3', category: 'Email', protocol: 'TCP', dest_ports: '110,995', source_ports: '1-65535', comment: 'Post Office Protocol', references: 1, references_count: 1, is_system: true },
-  { id: '9', name: 'RDP', category: 'Remote Access', protocol: 'TCP', dest_ports: '3389', source_ports: '1-65535', comment: 'Remote Desktop Protocol', references: 5, references_count: 5, is_system: true },
-  { id: '10', name: 'PING', category: 'Network Services', protocol: 'ICMP', dest_ports: '-', source_ports: '-', comment: 'ICMP Echo Request', references: 7, references_count: 7, is_system: true },
-  { id: '11', name: 'Custom-App-1', category: 'Custom', protocol: 'TCP', dest_ports: '8080-8090', source_ports: '1-65535', comment: 'Internal application ports', references: 2, references_count: 2, is_system: false },
-  { id: '12', name: 'VoIP-Ports', category: 'Custom', protocol: 'UDP', dest_ports: '5060-5061,10000-20000', source_ports: '1-65535', comment: 'VoIP signaling and media', references: 3, references_count: 3, is_system: false },
-];
-
 // Sortable Service Row
 interface SortableServiceRowProps {
   service: ServiceObject;

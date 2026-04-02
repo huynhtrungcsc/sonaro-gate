@@ -394,9 +394,11 @@ const IPPools = () => {
 
         {/* Table */}
         <div className="p-4">
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
           <table className="data-table">
             <thead>
               <tr>
+                <th className="w-6"></th>
                 <th className="w-8">
                   <input 
                     type="checkbox" 
@@ -415,87 +417,33 @@ const IPPools = () => {
                 <th>Usage</th>
               </tr>
             </thead>
+            <SortableContext items={filteredPools.map(p => p.id)} strategy={verticalListSortingStrategy}>
             <tbody>
               {filteredPools.map((pool) => (
-                <tr 
-                  key={pool.id} 
-                  className={cn(!pool.enabled && "opacity-60", selectedIds.includes(pool.id) && "selected")}
+                <SortablePoolRow
+                  key={pool.id}
+                  pool={pool}
+                  isSelected={selectedIds.includes(pool.id)}
+                  onSelect={handleSelect}
+                  onToggle={togglePool}
                   onDoubleClick={() => {
                     setSelectedIds([pool.id]);
                     setTimeout(openEditModal, 0);
                   }}
-                >
-                  <td>
-                    <input 
-                      type="checkbox" 
-                      className="forti-checkbox"
-                      checked={selectedIds.includes(pool.id)}
-                      onChange={() => handleSelect(pool.id)}
-                    />
-                  </td>
-                  <td>
-                    <FortiToggle 
-                      enabled={pool.enabled} 
-                      onToggle={() => togglePool(pool.id)}
-                      size="sm"
-                    />
-                  </td>
-                  <td>
-                    <div className="flex items-center gap-2">
-                      <Database className="w-3 h-3 text-purple-600" />
-                      <div>
-                        <div className="text-[11px] font-medium">{pool.name}</div>
-                        <div className="text-[10px] text-[#999]">{pool.comments}</div>
-                      </div>
-                    </div>
-                  </td>
-                  <td>
-                    <span className={cn(
-                      "forti-tag",
-                      pool.type === 'overload' && "bg-blue-100 text-blue-700 border-blue-200",
-                      pool.type === 'one-to-one' && "bg-green-100 text-green-700 border-green-200",
-                      pool.type === 'fixed-port-range' && "bg-purple-100 text-purple-700 border-purple-200",
-                      pool.type === 'port-block-allocation' && "bg-orange-100 text-orange-700 border-orange-200"
-                    )}>
-                      {getTypeLabel(pool.type)}
-                    </span>
-                  </td>
-                  <td className="mono text-[11px]">{pool.start_ip}</td>
-                  <td className="mono text-[11px]">{pool.end_ip}</td>
-                  <td>
-                    <span className="forti-tag bg-blue-100 text-blue-700 border-blue-200">
-                      {pool.associated_interface}
-                    </span>
-                  </td>
-                  <td>
-                    {pool.arp_reply ? (
-                      <span className="text-[10px] text-green-600">Enable</span>
-                    ) : (
-                      <span className="text-[10px] text-[#999]">Disable</span>
-                    )}
-                  </td>
-                  <td>
-                    <div className="flex items-center gap-2">
-                      <div className="w-16 h-1.5 bg-[#e0e0e0] rounded-full overflow-hidden">
-                        <div 
-                          className="h-full bg-blue-500 rounded-full"
-                          style={{ width: `${(pool.used_ips / pool.total_ips) * 100}%` }}
-                        />
-                      </div>
-                      <span className="text-[10px] text-[#666]">{pool.used_ips}/{pool.total_ips}</span>
-                    </div>
-                  </td>
-                </tr>
+                  getTypeLabel={getTypeLabel}
+                />
               ))}
               {filteredPools.length === 0 && (
                 <tr>
-                  <td colSpan={9} className="text-center text-[11px] text-[#999] py-8">
+                  <td colSpan={10} className="text-center text-[11px] text-[#999] py-8">
                     {searchQuery ? 'No matching IP pools found' : 'No IP pools configured'}
                   </td>
                 </tr>
               )}
             </tbody>
+            </SortableContext>
           </table>
+          </DndContext>
           <div className="text-[11px] text-[#666] mt-2 px-1">
             {filteredPools.length} IP pools
             {selectedIds.length > 0 && ` (${selectedIds.length} selected)`}

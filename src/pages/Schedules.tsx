@@ -54,14 +54,6 @@ interface Schedule {
   updated_at?: string;
 }
 
-const mockSchedules: Schedule[] = [
-  { id: 'sched-1', name: 'business_hours', description: 'Standard business hours', enabled: true, days: [1, 2, 3, 4, 5], start_time: '08:00', end_time: '18:00', usage_count: 8 },
-  { id: 'sched-2', name: 'after_hours', description: 'After work hours', enabled: true, days: [1, 2, 3, 4, 5], start_time: '18:00', end_time: '08:00', usage_count: 3 },
-  { id: 'sched-3', name: 'weekends', description: 'Weekend access', enabled: true, days: [0, 6], start_time: '00:00', end_time: '23:59', usage_count: 2 },
-  { id: 'sched-4', name: 'maintenance_window', description: 'Sunday maintenance window', enabled: true, days: [0], start_time: '02:00', end_time: '06:00', usage_count: 5 },
-  { id: 'sched-5', name: 'night_shift', description: 'Night shift access', enabled: false, days: [1, 2, 3, 4, 5], start_time: '22:00', end_time: '06:00', usage_count: 0 },
-  { id: 'sched-6', name: 'lunch_break', description: 'Lunch break restriction', enabled: true, days: [1, 2, 3, 4, 5], start_time: '12:00', end_time: '13:00', usage_count: 1 },
-];
 
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const DAYS_FULL = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
