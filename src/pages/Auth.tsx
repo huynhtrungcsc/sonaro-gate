@@ -8,7 +8,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
-import { AegisLogo } from '@/components/layout/AegisLogo';
 import { Eye, EyeOff, Shield, Lock, Mail, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 import { z } from 'zod';
@@ -17,6 +16,32 @@ const loginSchema = z.object({
   email: z.string().trim().email('Invalid email address').max(255),
   password: z.string().min(6, 'Password must be at least 6 characters').max(128),
 });
+
+function SonaroShield() {
+  return (
+    <svg width="40" height="40" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path
+        d="M20 3L5 9.5V20c0 8.5 6.5 16.5 15 18.5C29.5 36.5 36 28.5 36 20V9.5L20 3Z"
+        fill="url(#shield-grad)"
+        stroke="rgba(74,222,128,0.5)"
+        strokeWidth="1"
+      />
+      <path
+        d="M14 20l4 4 8-8"
+        stroke="#fff"
+        strokeWidth="2.2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <defs>
+        <linearGradient id="shield-grad" x1="20" y1="3" x2="20" y2="38" gradientUnits="userSpaceOnUse">
+          <stop offset="0%" stopColor="#16a34a" />
+          <stop offset="100%" stopColor="#064e28" />
+        </linearGradient>
+      </defs>
+    </svg>
+  );
+}
 
 export default function Auth() {
   const [email, setEmail]               = useState('admin@sonaro.local');
@@ -68,77 +93,70 @@ export default function Auth() {
     }
   };
 
+  const inputBase =
+    'w-full pl-9 pr-3 py-2.5 text-[13px] text-white placeholder:text-gray-600 rounded-lg transition-colors focus:outline-none';
+
   return (
     <div
-      className="min-h-screen flex items-center justify-center relative overflow-hidden"
-      style={{
-        background: 'linear-gradient(135deg, hsl(220,28%,9%) 0%, hsl(220,25%,14%) 55%, hsl(142,32%,11%) 100%)',
-      }}
+      className="min-h-screen flex items-center justify-center"
+      style={{ background: 'linear-gradient(160deg, #0b1520 0%, #0d1e17 60%, #0a1a10 100%)' }}
     >
-      {/* Subtle dot-grid overlay */}
-      <div
-        className="absolute inset-0 pointer-events-none"
-        style={{
-          backgroundImage: 'radial-gradient(circle, rgba(74,222,128,0.07) 1px, transparent 1px)',
-          backgroundSize: '36px 36px',
-        }}
-      />
+      <div className="w-full max-w-[520px] px-5">
 
-      {/* Ambient glow — bottom right */}
-      <div
-        className="absolute bottom-0 right-0 w-[500px] h-[400px] pointer-events-none"
-        style={{
-          background: 'radial-gradient(ellipse at bottom right, rgba(22,163,74,0.12) 0%, transparent 70%)',
-        }}
-      />
-
-      <div className="relative w-full max-w-[400px] mx-4 z-10">
-
-        {/* ── Logo block ─────────────────────────────────────────────── */}
-        <div className="flex flex-col items-center mb-8">
-          <AegisLogo size="lg" />
-          <p className="text-[10px] tracking-[0.25em] text-gray-500 mt-2 uppercase">
-            Security Management Console
-          </p>
+        {/* ── Brand ────────────────────────────────────────────────── */}
+        <div className="flex items-center gap-3.5 mb-8">
+          <SonaroShield />
+          <div>
+            <div className="flex items-baseline gap-2">
+              <span className="text-2xl font-extrabold tracking-[0.1em] text-white leading-none">
+                SONARO
+              </span>
+              <span className="text-sm font-bold tracking-[0.3em] text-emerald-400 leading-none">
+                GATE
+              </span>
+            </div>
+            <p className="text-[10px] tracking-[0.2em] text-gray-500 mt-1 uppercase">
+              Security Management Console
+            </p>
+          </div>
         </div>
 
-        {/* ── Login card ─────────────────────────────────────────────── */}
+        {/* ── Card ─────────────────────────────────────────────────── */}
         <div
-          className="rounded-xl overflow-hidden shadow-2xl"
+          className="rounded-2xl overflow-hidden"
           style={{
-            background: 'rgba(12,22,18,0.80)',
-            backdropFilter: 'blur(24px)',
-            border: '1px solid rgba(74,222,128,0.14)',
-            boxShadow: '0 0 0 1px rgba(0,0,0,0.4), 0 24px 48px rgba(0,0,0,0.5), 0 0 80px rgba(22,163,74,0.06)',
+            background: 'rgba(255,255,255,0.03)',
+            border: '1px solid rgba(255,255,255,0.08)',
+            boxShadow: '0 20px 60px rgba(0,0,0,0.6)',
           }}
         >
-          {/* Top accent line */}
-          <div className="h-px bg-gradient-to-r from-transparent via-emerald-500/60 to-transparent" />
+          {/* Thin top line */}
+          <div className="h-px bg-gradient-to-r from-transparent via-emerald-500/50 to-transparent" />
 
-          {/* Card header */}
+          {/* Header */}
           <div
-            className="flex items-center gap-2.5 px-6 py-3 border-b"
-            style={{ borderColor: 'rgba(74,222,128,0.1)', background: 'rgba(255,255,255,0.02)' }}
+            className="flex items-center gap-2.5 px-7 py-3.5 border-b"
+            style={{ borderColor: 'rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.02)' }}
           >
-            <span className="relative flex h-2 w-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-60" />
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+            <span className="relative flex h-1.5 w-1.5">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-70" />
+              <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500" />
             </span>
-            <span className="text-[11px] font-semibold tracking-[0.12em] text-emerald-400 uppercase">
+            <span className="text-[11px] font-semibold tracking-[0.15em] text-emerald-400 uppercase">
               System Authentication
             </span>
           </div>
 
-          {/* Form body */}
-          <form onSubmit={handleSubmit} className="px-6 pt-6 pb-5 space-y-4">
+          {/* Form */}
+          <form onSubmit={handleSubmit} className="px-7 py-6 space-y-5">
 
             {/* Email */}
             <div>
-              <label className="block text-[10px] tracking-[0.12em] uppercase text-gray-500 mb-1.5">
+              <label className="block text-[10px] tracking-[0.15em] uppercase text-gray-500 mb-2 font-medium">
                 Email Address
               </label>
               <div className="relative">
-                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-600" />
+                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-600 pointer-events-none" />
                 <input
                   data-testid="input-login-email"
                   type="email"
@@ -146,31 +164,31 @@ export default function Auth() {
                   onChange={e => setEmail(e.target.value)}
                   placeholder="admin@sonaro.local"
                   autoComplete="email"
-                  className="w-full pl-9 pr-3 py-2.5 text-[12px] text-white placeholder:text-gray-600 rounded-lg transition-colors focus:outline-none"
+                  className={inputBase}
                   style={{
-                    background: 'rgba(255,255,255,0.04)',
+                    background: 'rgba(255,255,255,0.05)',
                     border: errors.email
-                      ? '1px solid rgba(239,68,68,0.6)'
-                      : '1px solid rgba(255,255,255,0.08)',
+                      ? '1px solid rgba(239,68,68,0.55)'
+                      : '1px solid rgba(255,255,255,0.1)',
                   }}
-                  onFocus={e => { if (!errors.email) e.currentTarget.style.border = '1px solid rgba(74,222,128,0.45)'; }}
-                  onBlur={e => { if (!errors.email) e.currentTarget.style.border = '1px solid rgba(255,255,255,0.08)'; }}
+                  onFocus={e => { if (!errors.email) e.currentTarget.style.border = '1px solid rgba(74,222,128,0.5)'; }}
+                  onBlur={e => { if (!errors.email) e.currentTarget.style.border = '1px solid rgba(255,255,255,0.1)'; }}
                 />
               </div>
               {errors.email && (
-                <p className="text-[10px] text-red-400 mt-1 flex items-center gap-1">
-                  <AlertTriangle className="w-3 h-3" /> {errors.email}
+                <p className="text-[10px] text-red-400 mt-1.5 flex items-center gap-1">
+                  <AlertTriangle className="w-3 h-3 shrink-0" /> {errors.email}
                 </p>
               )}
             </div>
 
             {/* Password */}
             <div>
-              <label className="block text-[10px] tracking-[0.12em] uppercase text-gray-500 mb-1.5">
+              <label className="block text-[10px] tracking-[0.15em] uppercase text-gray-500 mb-2 font-medium">
                 Password
               </label>
               <div className="relative">
-                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-600" />
+                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-600 pointer-events-none" />
                 <input
                   data-testid="input-login-password"
                   type={showPassword ? 'text' : 'password'}
@@ -178,15 +196,15 @@ export default function Auth() {
                   onChange={e => setPassword(e.target.value)}
                   placeholder="••••••••"
                   autoComplete="current-password"
-                  className="w-full pl-9 pr-10 py-2.5 text-[12px] text-white placeholder:text-gray-600 rounded-lg transition-colors focus:outline-none"
+                  className={`${inputBase} pr-10`}
                   style={{
-                    background: 'rgba(255,255,255,0.04)',
+                    background: 'rgba(255,255,255,0.05)',
                     border: errors.password
-                      ? '1px solid rgba(239,68,68,0.6)'
-                      : '1px solid rgba(255,255,255,0.08)',
+                      ? '1px solid rgba(239,68,68,0.55)'
+                      : '1px solid rgba(255,255,255,0.1)',
                   }}
-                  onFocus={e => { if (!errors.password) e.currentTarget.style.border = '1px solid rgba(74,222,128,0.45)'; }}
-                  onBlur={e => { if (!errors.password) e.currentTarget.style.border = '1px solid rgba(255,255,255,0.08)'; }}
+                  onFocus={e => { if (!errors.password) e.currentTarget.style.border = '1px solid rgba(74,222,128,0.5)'; }}
+                  onBlur={e => { if (!errors.password) e.currentTarget.style.border = '1px solid rgba(255,255,255,0.1)'; }}
                 />
                 <button
                   type="button"
@@ -198,45 +216,45 @@ export default function Auth() {
                 </button>
               </div>
               {errors.password && (
-                <p className="text-[10px] text-red-400 mt-1 flex items-center gap-1">
-                  <AlertTriangle className="w-3 h-3" /> {errors.password}
+                <p className="text-[10px] text-red-400 mt-1.5 flex items-center gap-1">
+                  <AlertTriangle className="w-3 h-3 shrink-0" /> {errors.password}
                 </p>
               )}
             </div>
 
             {/* Default credentials hint */}
             <div
-              className="rounded-lg px-3.5 py-2.5 text-[10px]"
+              className="rounded-lg px-4 py-3"
               style={{
                 background: 'rgba(74,222,128,0.04)',
-                border: '1px solid rgba(74,222,128,0.1)',
+                border: '1px solid rgba(74,222,128,0.12)',
               }}
             >
-              <p className="text-[9px] tracking-[0.15em] uppercase text-gray-600 mb-1.5 font-medium">
+              <p className="text-[9px] tracking-[0.18em] uppercase text-gray-600 mb-2 font-semibold">
                 Default Credentials
               </p>
-              <p className="font-mono text-gray-400">
-                <span className="text-gray-600">login </span>
-                <span className="text-emerald-400">admin@sonaro.local</span>
-              </p>
-              <p className="font-mono text-gray-400">
-                <span className="text-gray-600">pass  </span>
-                <span className="text-emerald-400">Admin123!</span>
-              </p>
+              <div className="font-mono text-[11px] space-y-0.5">
+                <p className="text-gray-400">
+                  <span className="text-gray-600 mr-2">login</span>
+                  <span className="text-emerald-400">admin@sonaro.local</span>
+                </p>
+                <p className="text-gray-400">
+                  <span className="text-gray-600 mr-2">pass </span>
+                  <span className="text-emerald-400">Admin123!</span>
+                </p>
+              </div>
             </div>
 
-            {/* Sign In button */}
+            {/* Submit */}
             <button
               data-testid="button-login-submit"
               type="submit"
               disabled={submitting}
-              className="w-full py-2.5 font-semibold text-[12px] tracking-wider rounded-lg transition-all duration-200 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full py-3 font-semibold text-[13px] tracking-wider rounded-lg transition-all duration-200 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
               style={{
-                background: submitting
-                  ? 'rgba(22,163,74,0.6)'
-                  : 'linear-gradient(135deg, #16a34a 0%, #22c55e 100%)',
+                background: 'linear-gradient(135deg, #16a34a 0%, #22c55e 100%)',
+                boxShadow: '0 4px 20px rgba(22,163,74,0.3)',
                 color: '#fff',
-                boxShadow: '0 4px 16px rgba(22,163,74,0.25)',
               }}
             >
               {submitting ? (
@@ -248,19 +266,19 @@ export default function Auth() {
             </button>
           </form>
 
-          {/* Authorized access notice */}
+          {/* Security notice */}
           <div
-            className="px-6 py-2.5 border-t text-center"
-            style={{ borderColor: 'rgba(255,255,255,0.05)', background: 'rgba(0,0,0,0.15)' }}
+            className="px-7 py-3 border-t"
+            style={{ borderColor: 'rgba(255,255,255,0.05)', background: 'rgba(0,0,0,0.2)' }}
           >
-            <p className="text-[9px] tracking-[0.15em] text-gray-700 uppercase">
+            <p className="text-[9px] tracking-[0.12em] text-gray-700 uppercase text-center whitespace-nowrap">
               Authorized access only · All sessions are monitored and logged
             </p>
           </div>
         </div>
 
-        {/* Footer */}
-        <p className="text-center text-[10px] text-gray-700 mt-5 tracking-widest uppercase">
+        {/* Page footer */}
+        <p className="text-center text-[10px] text-gray-700 mt-5 tracking-widest uppercase whitespace-nowrap">
           Sonaro Gate · 2025.1 LTS · Next-Generation Firewall
         </p>
       </div>
