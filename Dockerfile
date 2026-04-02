@@ -18,7 +18,13 @@ WORKDIR /build
 
 # Install dependencies first (layer cache)
 COPY package.json package-lock.json ./
-RUN npm ci --ignore-scripts
+# Configure npm retries and timeouts before installing — guards against
+# transient ECONNRESET / network aborted errors on slow/unstable connections.
+RUN npm config set fetch-retry-mintimeout 20000 \
+    && npm config set fetch-retry-maxtimeout 120000 \
+    && npm config set fetch-retries 5 \
+    && npm config set maxsockets 5 \
+    && npm ci --ignore-scripts
 
 # Copy source and build
 COPY . .
@@ -45,7 +51,11 @@ WORKDIR /app
 
 # Install production dependencies only
 COPY package.json package-lock.json ./
-RUN npm ci --omit=dev --ignore-scripts
+RUN npm config set fetch-retry-mintimeout 20000 \
+    && npm config set fetch-retry-maxtimeout 120000 \
+    && npm config set fetch-retries 5 \
+    && npm config set maxsockets 5 \
+    && npm ci --omit=dev --ignore-scripts
 
 # Copy server source (tsx transpiles at runtime)
 COPY server/   ./server/
