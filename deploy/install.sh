@@ -19,6 +19,19 @@
 # causing SIGPIPE) would silently kill the script on legitimate commands.
 set -eu
 
+# ── stdin guard ────────────────────────────────────────────────────────────────
+# When the script is run via:  curl -fsSL ... | sudo bash
+# bash reads commands from the pipe (stdin). Any subprocess that also reads
+# from stdin will consume the remaining script content from the pipe.
+# Docker BuildKit does exactly this: "docker buildx bake" reads its bake
+# definitions from stdin, consuming 478 bytes of script and leaving nothing
+# for the Dockerfile transfer → "transferring dockerfile: 2B" → build fails.
+#
+# Fix: if stdin is not a terminal (i.e. we are in a pipe), redirect stdin
+# to /dev/null for all subsequent commands. Interactive read prompts are
+# already guarded by [[ -t 0 ]] so this is safe.
+[[ -t 0 ]] || exec 0</dev/null
+
 # ── Colour helpers ─────────────────────────────────────────────────────────────
 # $'...' C-style strings so \033 is interpreted as ESC, not literal backslash
 RED=$'\033[0;31m'
