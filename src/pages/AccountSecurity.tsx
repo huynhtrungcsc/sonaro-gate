@@ -143,7 +143,7 @@ export default function AccountSecurity() {
   });
 
   return (
-    <Shell title="Account Security">
+    <Shell>
       <div style={{ maxWidth: 560, margin: '32px auto', padding: '0 16px' }}>
 
         {/* ── Header ─────────────────────────────────────── */}

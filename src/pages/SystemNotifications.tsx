@@ -162,7 +162,7 @@ export default function SystemNotifications() {
   });
 
   return (
-    <Shell title="Notifications">
+    <Shell>
       <div style={{ padding: '24px 28px', maxWidth: 900 }}>
 
         {/* ── Page header ──────────────────────────────────────────── */}
