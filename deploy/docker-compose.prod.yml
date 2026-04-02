@@ -33,7 +33,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - ./docker/postgresql-hardened.conf:/etc/postgresql/postgresql.conf:ro
+      - ../docker/postgresql-hardened.conf:/etc/postgresql/postgresql.conf:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-sonaro} -d ${POSTGRES_DB:-sonaro_gate}"]
       interval: 10s
@@ -44,7 +44,7 @@ services:
   # ── Sonaro Gate Application ────────────────────────────────────────────────
   sonaro-gate:
     build:
-      context: .
+      context: ..
       dockerfile: Dockerfile
     image: sonaro-gate:latest
     container_name: sonaro-gate
