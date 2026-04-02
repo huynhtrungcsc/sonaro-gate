@@ -25,7 +25,6 @@ import Schedules from "./pages/Schedules";
 import ConfigBackup from "./pages/ConfigBackup";
 import SystemBackup from "./pages/SystemBackup";
 import IDSSettings from "./pages/IDSSettings";
-import Routing from "./pages/Routing";
 import StaticRoutes from "./pages/StaticRoutes";
 import PolicyRoutes from "./pages/PolicyRoutes";
 import RIPConfig from "./pages/RIPConfig";
@@ -105,7 +104,7 @@ const App = () => (
             <Route path="/interfaces/assignment" element={<P><InterfaceAssignment /></P>} />
 
             {/* Routing */}
-            <Route path="/routing" element={<P><Routing /></P>} />
+            <Route path="/routing" element={<Navigate to="/routing/static" replace />} />
             <Route path="/routing/static" element={<P><StaticRoutes /></P>} />
             <Route path="/routing/policy" element={<P><PolicyRoutes /></P>} />
             <Route path="/routing/rip" element={<P><RIPConfig /></P>} />
@@ -119,9 +118,9 @@ const App = () => (
 
             {/* VPN */}
             <Route path="/vpn/ipsec" element={<P><VPN /></P>} />
-            <Route path="/vpn/openvpn" element={<P><VPN /></P>} />
             <Route path="/vpn/wireguard" element={<P><VPN /></P>} />
             <Route path="/vpn/monitor" element={<P><VPN /></P>} />
+            <Route path="/vpn/openvpn" element={<Navigate to="/vpn/ipsec" replace />} />
 
             {/* Users */}
             <Route path="/users/local"        element={<P><LocalUsers /></P>} />

@@ -203,7 +203,9 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
 
   useEffect(() => {
     navigation.forEach(section => {
-      const hasActiveItem = section.items.some(item => location.pathname === item.path);
+      const hasActiveItem = section.items.some(item =>
+        location.pathname === item.path || location.pathname.startsWith(item.path + '/')
+      );
       if (hasActiveItem && !expandedSections.includes(section.title)) {
         setExpandedSections(prev => [...prev, section.title]);
       }
@@ -221,7 +223,9 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const isActive = (path: string) => location.pathname === path;
   const isSectionActive = (section: NavSection) =>
     (section.directPath != null && section.directPath === location.pathname) ||
-    section.items.some(item => location.pathname === item.path);
+    section.items.some(item =>
+      location.pathname === item.path || location.pathname.startsWith(item.path + '/')
+    );
 
   return (
     <aside
