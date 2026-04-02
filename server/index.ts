@@ -317,7 +317,7 @@ async function startWebServer() {
 
   // PATCH /api/admin/users/:id — update user full_name and/or role
   app.patch('/api/admin/users/:id', requireAuth, async (req, res) => {
-    const { id } = req.params;
+    const id = req.params.id as string;
     const { full_name, role } = req.body;
     const validRoles = ['super_admin', 'admin', 'operator', 'auditor'];
     if (role && !validRoles.includes(role)) {
@@ -341,7 +341,7 @@ async function startWebServer() {
 
   // DELETE /api/admin/users/:id — remove all roles (revoke admin access)
   app.delete('/api/admin/users/:id', requireAuth, async (req, res) => {
-    const { id } = req.params;
+    const id = req.params.id as string;
     const requesterId = (req as any).user.sub;
     if (id === requesterId) {
       return res.status(400).json({ message: 'You cannot remove your own admin access' });
@@ -416,7 +416,7 @@ async function startWebServer() {
 
   // Update channel
   app.put('/api/notifications/channels/:id', requireAuth, async (req, res) => {
-    const { id } = req.params;
+    const id = req.params.id as string;
     const { name, enabled, config } = req.body;
     try {
       const updates: Record<string, any> = { updated_at: new Date() };
@@ -432,7 +432,7 @@ async function startWebServer() {
 
   // Delete channel
   app.delete('/api/notifications/channels/:id', requireAuth, async (req, res) => {
-    const { id } = req.params;
+    const id = req.params.id as string;
     try {
       await db.delete(notificationChannels).where(eq(notificationChannels.id, id));
       res.json({ success: true });
@@ -443,7 +443,7 @@ async function startWebServer() {
 
   // Test channel — send a test message
   app.post('/api/notifications/channels/:id/test', requireAuth, async (req, res) => {
-    const { id } = req.params;
+    const id = req.params.id as string;
     const result = await testChannel(id);
     if (result.ok) res.json({ success: true });
     else res.status(400).json({ message: result.error });
@@ -481,7 +481,7 @@ async function startWebServer() {
 
   // Update rule
   app.put('/api/notifications/rules/:id', requireAuth, async (req, res) => {
-    const { id } = req.params;
+    const id = req.params.id as string;
     const { name, event_types, trigger_mode, schedule_interval, min_severity, enabled } = req.body;
     try {
       const updates: Record<string, any> = { updated_at: new Date() };
@@ -500,7 +500,7 @@ async function startWebServer() {
 
   // Delete rule
   app.delete('/api/notifications/rules/:id', requireAuth, async (req, res) => {
-    const { id } = req.params;
+    const id = req.params.id as string;
     try {
       await db.delete(notificationRules).where(eq(notificationRules.id, id));
       res.json({ success: true });
@@ -573,11 +573,11 @@ async function startWebServer() {
   });
 
   app.get('/api/system/interfaces/:name', requireAuth, async (req, res) => {
-    res.json({ raw: await getInterfaceDetails(req.params.name) });
+    res.json({ raw: await getInterfaceDetails(req.params.name as string) });
   });
 
   app.post('/api/system/interfaces/:name/apply', requireAuth, async (req, res) => {
-    const { name } = req.params;
+    const name = req.params.name as string;
     const { ip_address, subnet, gateway } = req.body;
     if (!ip_address || !subnet) {
       return res.status(400).json({ success: false, message: 'ip_address and subnet required' });
@@ -596,7 +596,7 @@ async function startWebServer() {
   });
 
   app.post('/api/system/interfaces/:name/state', requireAuth, async (req, res) => {
-    const { name } = req.params;
+    const name = req.params.name as string;
     const { state } = req.body;
     if (state !== 'up' && state !== 'down') {
       return res.status(400).json({ success: false, message: 'state must be "up" or "down"' });
@@ -657,14 +657,14 @@ async function startWebServer() {
   });
 
   app.patch('/api/system/ips/rules/:sid/enabled', requireAuth, async (req, res) => {
-    const sid = parseInt(req.params.sid);
+    const sid = parseInt(req.params.sid as string);
     const { enabled } = req.body;
     if (isNaN(sid)) return res.status(400).json({ ok: false, message: 'invalid sid' });
     res.json(await setRuleEnabled(sid, Boolean(enabled)));
   });
 
   app.delete('/api/system/ips/rules/:sid', requireAuth, async (req, res) => {
-    const sid = parseInt(req.params.sid);
+    const sid = parseInt(req.params.sid as string);
     if (isNaN(sid)) return res.status(400).json({ ok: false, message: 'invalid sid' });
     res.json(await deleteRule(sid));
   });

@@ -595,7 +595,7 @@ export const insertStaticRouteSchema = createInsertSchema(staticRoutes).omit({ i
 export const insertAuditLogSchema = createInsertSchema(auditLogs).omit({ id: true, created_at: true });
 
 export type User = typeof users.$inferSelect;
-export type InsertUser = z.infer<typeof insertUserSchema>;
+export type InsertUser = typeof users.$inferInsert;
 export type FirewallRule = typeof firewallRules.$inferSelect;
 export type NatRule = typeof natRules.$inferSelect;
 export type NetworkInterface = typeof networkInterfaces.$inferSelect;

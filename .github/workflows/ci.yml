@@ -28,8 +28,11 @@ jobs:
       - name: TypeScript type-check (frontend)
         run: npx tsc --noEmit -p tsconfig.app.json
 
-      - name: TypeScript type-check (server)
+      - name: TypeScript type-check (vite config)
         run: npx tsc --noEmit -p tsconfig.node.json
+
+      - name: TypeScript type-check (server)
+        run: npx tsc --noEmit -p tsconfig.server.json
 
       - name: Build frontend
         run: npm run build

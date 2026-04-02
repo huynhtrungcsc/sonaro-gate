@@ -111,7 +111,7 @@ export function createCrudRouter(): Router {
 
   // GET /:table — list / filter
   router.get('/:table', requireAuth, async (req, res) => {
-    const { table } = req.params;
+    const table = req.params.table as string;
     if (!TABLE_MAP[table]) {
       return res.status(404).json({ message: `Table '${table}' not found` });
     }
@@ -128,7 +128,7 @@ export function createCrudRouter(): Router {
 
   // POST /:table — insert
   router.post('/:table', requireAuth, async (req, res) => {
-    const { table } = req.params;
+    const table = req.params.table as string;
     if (!TABLE_MAP[table]) {
       return res.status(404).json({ message: `Table '${table}' not found` });
     }
@@ -155,7 +155,7 @@ export function createCrudRouter(): Router {
 
   // PATCH /:table — update (filtered)
   router.patch('/:table', requireAuth, async (req, res) => {
-    const { table } = req.params;
+    const table = req.params.table as string;
     if (!TABLE_MAP[table]) {
       return res.status(404).json({ message: `Table '${table}' not found` });
     }
@@ -196,7 +196,7 @@ export function createCrudRouter(): Router {
 
   // DELETE /:table — delete (filtered)
   router.delete('/:table', requireAuth, async (req, res) => {
-    const { table } = req.params;
+    const table = req.params.table as string;
     if (!TABLE_MAP[table]) {
       return res.status(404).json({ message: `Table '${table}' not found` });
     }
