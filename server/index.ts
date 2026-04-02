@@ -4,7 +4,6 @@ import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { createServer as createHttpServer } from 'http';
-import { createServer as createViteServer } from 'vite';
 import { attachWebSocket } from './ws.js';
 import { db } from './db.js';
 import { users, userRoles, networkInterfaces, systemSettings, firewallRules, natRules, aliases, schedules, certificates, staticRoutes, vpnTunnels, configBackups } from '../shared/schema.js';
@@ -496,6 +495,11 @@ async function startWebServer() {
   // Frontend — Vite dev or static production build
   // ─────────────────────────────────────────────────
   if (isDev) {
+    // Dynamic import so 'vite' (a devDependency) is never required at startup
+    // in the production container where it is not installed (npm ci --omit=dev).
+    // A static top-level import would crash production on module load, before
+    // any NODE_ENV check is reached.
+    const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
       root: ROOT,
       server: {
