@@ -41,16 +41,20 @@ RUN DATABASE_URL=postgresql://localhost/dummy npx drizzle-kit generate
 # ── Stage 2: Production runtime ───────────────────────────────────────────────
 FROM node:20-alpine AS production
 
-# Install Linux networking tools required by the backend
+# Install Linux networking tools required by the backend.
+# On Alpine Linux the single `iptables` package ships both the nftables-backed
+# binaries (/sbin/iptables, /sbin/ip6tables) AND the legacy xtables binaries
+# (/sbin/iptables-legacy, /sbin/ip6tables-legacy).
+# There is NO separate `iptables-legacy` or `ip6tables` Alpine package.
+# We then point the default `iptables`/`ip6tables` commands to the legacy
+# backend so the container works on hosts whose kernel lacks nftables support.
 RUN apk add --no-cache \
     iproute2 \
     iptables \
-    iptables-legacy \
-    ip6tables \
     ipset \
     curl \
     bash \
-    && ln -sf /sbin/iptables-legacy /sbin/iptables \
+    && ln -sf /sbin/iptables-legacy  /sbin/iptables  \
     && ln -sf /sbin/ip6tables-legacy /sbin/ip6tables
 
 WORKDIR /app
