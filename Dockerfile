@@ -11,12 +11,12 @@
 #       iptables, ip, sysctl, and netplan commands to function.
 # ─────────────────────────────────────────────────────────────────────────────
 
-# ── Stage 1: Build frontend ───────────────────────────────────────────────────
+# ── Stage 1: Build frontend + generate DB migrations ─────────────────────────
 FROM node:20-alpine AS builder
 
 WORKDIR /build
 
-# Install dependencies first (layer cache)
+# Install ALL dependencies (including devDeps: vite, drizzle-kit, tsx, etc.)
 COPY package.json package-lock.json ./
 # Configure npm retries and timeouts before installing — guards against
 # transient ECONNRESET / network aborted errors on slow/unstable connections.
@@ -26,10 +26,16 @@ RUN npm config set fetch-retry-mintimeout 20000 \
     && npm config set maxsockets 5 \
     && npm ci --ignore-scripts
 
-# Copy source and build
+# Copy source
 COPY . .
+
+# Build the React frontend (output → /build/dist)
 RUN npm run build
-# Result: /build/dist  (Vite static output served by Express in production)
+
+# Generate Drizzle SQL migration files from the schema.
+# DATABASE_URL is not needed for `generate` — it only reads the TypeScript
+# schema and emits SQL. A dummy URL satisfies the drizzle.config.ts validator.
+RUN DATABASE_URL=postgresql://localhost/dummy npx drizzle-kit generate
 
 
 # ── Stage 2: Production runtime ───────────────────────────────────────────────
@@ -49,7 +55,7 @@ RUN apk add --no-cache \
 
 WORKDIR /app
 
-# Install production dependencies only
+# Install production dependencies only (no vite, no drizzle-kit, etc.)
 COPY package.json package-lock.json ./
 RUN npm config set fetch-retry-mintimeout 20000 \
     && npm config set fetch-retry-maxtimeout 120000 \
@@ -62,11 +68,16 @@ COPY server/   ./server/
 COPY shared/   ./shared/
 COPY tsconfig.json tsconfig.node.json ./
 
-# Copy built frontend
+# Copy built frontend from builder
 COPY --from=builder /build/dist ./dist
 
+# Copy generated Drizzle migration files from builder.
+# These are applied at container startup via server/migrate.ts → migrate()
+# before seedDatabase() runs — ensuring all tables exist.
+COPY --from=builder /build/drizzle ./drizzle
+
 # Health check via the unauthenticated /api/health endpoint
-HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=5 \
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=5 \
     CMD wget -qO- http://localhost:${PORT:-5000}/api/health || exit 1
 
 EXPOSE 5000

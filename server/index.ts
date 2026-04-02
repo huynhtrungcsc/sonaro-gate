@@ -11,6 +11,7 @@ import { signToken, checkPassword, requireAuth } from './auth.js';
 import { createCrudRouter } from './postgrest.js';
 import { startAgent } from './agent.js';
 import { seedDatabase } from './seed.js';
+import { runMigrations } from './migrate.js';
 import {
   getSuricataStatus,
   startSuricata,
@@ -513,7 +514,8 @@ async function startWebServer() {
   } else {
     const distPath = path.join(ROOT, 'dist');
     app.use(express.static(distPath));
-    app.get('*', (_req, res) => res.sendFile(path.join(distPath, 'index.html')));
+    // Express 5 + path-to-regexp v8: bare '*' is invalid — must use '/{*path}'
+    app.get('/{*path}', (_req, res) => res.sendFile(path.join(distPath, 'index.html')));
   }
 
   // ─────────────────────────────────────────────────
@@ -550,6 +552,10 @@ async function startWebServer() {
 // ─────────────────────────────────────────────────────────────────
 
 async function main() {
+  // 0. Apply DB schema migrations (idempotent — safe on every startup).
+  //    Tables are created here before seedDatabase() queries them.
+  await runMigrations();
+
   // 1. Seed DB (create admin user if missing)
   await seedDatabase();
 
