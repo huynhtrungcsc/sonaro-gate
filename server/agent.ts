@@ -86,7 +86,7 @@ async function captureHardwareSerial() {
         value: serial,
         description: 'Hardware serial number (auto-detected)',
       });
-    } else if (existing[0].value === 'SONARO-GATE' || existing[0].value === 'WALLIX-FW-500' || existing[0].value === '') {
+    } else if (existing[0].value === 'SONARO-GATE' || existing[0].value === '') {
       // Replace placeholder with real serial
       await db.update(systemSettings)
         .set({ value: serial, updated_at: new Date() })

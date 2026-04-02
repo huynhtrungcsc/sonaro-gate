@@ -1,6 +1,6 @@
-# Wallix FW-500 • 2025.1 LTS — Kiến trúc hệ thống
+# Sonaro Gate • 2025.1 LTS — Kiến trúc hệ thống
 
-Tài liệu này mô tả toàn bộ kiến trúc, luồng hoạt động, và các thành phần của Wallix FW-500 • 2025.1 LTS.
+Tài liệu này mô tả toàn bộ kiến trúc, luồng hoạt động, và các thành phần của Sonaro Gate • 2025.1 LTS.
 
 ---
 
@@ -28,7 +28,7 @@ Tài liệu này mô tả toàn bộ kiến trúc, luồng hoạt động, và c
                               ▼
                     ┌─────────────────┐
                     │                 │
-                    │   WALLIX NGFW    │  ← Ubuntu 24.04 LTS
+                    │   SONARO GATE    │  ← Ubuntu 24.04 LTS
                     │   (bare-metal)  │
                     │                 │
                     │  ┌───────────┐  │
@@ -92,7 +92,7 @@ sudo npx tsx server/index.ts
            │
            ├─── 5. Run CLI Wizard (nếu eligible)
            │         └─► server/setup.ts
-           │               ├── Điều kiện: root + TTY + chưa setup + WALLIX_SKIP_SETUP≠1
+           │               ├── Điều kiện: root + TTY + chưa setup + SONARO_SKIP_SETUP≠1
            │               ├── Detect NICs (systeminformation)
            │               ├── Wizard tương tác (readline)
            │               ├── Ghi netplan YAML → netplan apply
@@ -180,7 +180,7 @@ Packet đến FORWARD chain
 
 ```
 ┌────────────────────────────────────────────────────────────────┐
-│                    Wallix NGFW Application                      │
+│                    Sonaro Gate Application                      │
 │                                                                │
 │  ┌──────────────────────────────────────────────────────────┐  │
 │  │                     Frontend (React)                     │  │
@@ -284,7 +284,7 @@ File: `server/iptables.ts`
 │  Thêm luật ACCEPT   │ iptables -I FORWARD -s SRC -d DST -j ACCEPT│
 │  Thêm luật DROP     │ iptables -A FORWARD -j DROP                │
 │  IP Forward sysctl  │ sysctl -w net.ipv4.ip_forward=1            │
-│  IP Forward persist │ /etc/sysctl.d/99-wallix-forward.conf        │
+│  IP Forward persist │ /etc/sysctl.d/99-sonaro-forward.conf        │
 │  NAT masquerade     │ iptables -t nat -A POSTROUTING -j MASQUERADE│
 │  DNAT (port fwd)    │ iptables -t nat -A PREROUTING -p tcp       │
 │                     │   --dport EXT -j DNAT --to-dest INT:PORT   │
@@ -295,7 +295,7 @@ File: `server/iptables.ts`
 │  Thêm route tĩnh    │ ip route add NET/MASK via GW               │
 │  Xóa route          │ ip route del NET/MASK                      │
 │  Xem bảng route     │ ip route show                              │
-│  Netplan persist    │ /etc/netplan/90-wallix.yaml + netplan apply  │
+│  Netplan persist    │ /etc/netplan/90-sonaro.yaml + netplan apply  │
 └──────────────────────────────────────────────────────────────────┘
 ```
 
@@ -309,7 +309,7 @@ applyFullConfig()
         │
         ├─► 1. enableIpForwarding()
         │         sysctl net.ipv4.ip_forward=1
-        │         persist: /etc/sysctl.d/99-wallix-forward.conf
+        │         persist: /etc/sysctl.d/99-sonaro-forward.conf
         │
         ├─► 2. applyFirewallRules()
         │         iptables -F FORWARD  (flush hiện tại)
