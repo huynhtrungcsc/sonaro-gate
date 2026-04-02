@@ -278,20 +278,15 @@ export default function Auth() {
         </div>
 
         {/* Page footer — GitHub style */}
-        <footer className="mt-6 flex flex-wrap items-center justify-center gap-x-5 gap-y-2">
-          {/* Brand mark */}
-          <div className="flex items-center gap-1.5 text-gray-600">
-            <svg width="14" height="14" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M20 3L5 9.5V20c0 8.5 6.5 16.5 15 18.5C29.5 36.5 36 28.5 36 20V9.5L20 3Z"
-                fill="rgba(74,222,128,0.25)" stroke="rgba(74,222,128,0.5)" strokeWidth="1.5" />
-              <path d="M14 20l4 4 8-8" stroke="rgba(74,222,128,0.8)" strokeWidth="2.5"
-                strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-            <span className="text-[10px]">© 2025 Huỳnh Chí Trung</span>
-          </div>
-
-          <div className="w-px h-3 bg-gray-800" />
-
+        <footer className="mt-6 flex items-center justify-center gap-3 flex-nowrap overflow-x-auto">
+          <svg width="13" height="13" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg" className="shrink-0">
+            <path d="M20 3L5 9.5V20c0 8.5 6.5 16.5 15 18.5C29.5 36.5 36 28.5 36 20V9.5L20 3Z"
+              fill="rgba(74,222,128,0.22)" stroke="rgba(74,222,128,0.45)" strokeWidth="1.5" />
+            <path d="M14 20l4 4 8-8" stroke="rgba(74,222,128,0.75)" strokeWidth="2.5"
+              strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          <span className="text-[10px] text-gray-600 whitespace-nowrap">© 2025 Huỳnh Chí Trung</span>
+          <span className="w-px h-3 bg-gray-800 shrink-0" />
           {[
             { label: 'Home',     href: 'https://sonarogate.com' },
             { label: 'GitHub',   href: 'https://github.com/huynhtrungcsc/sonaro-gate' },
@@ -299,18 +294,16 @@ export default function Auth() {
             { label: 'Security', href: 'https://github.com/huynhtrungcsc/sonaro-gate/security' },
             { label: 'Contact',  href: 'mailto:huynhtrung.csc@gmail.com' },
           ].map((item, i, arr) => (
-            <span key={item.label} className="flex items-center gap-x-5">
+            <span key={item.label} className="flex items-center gap-3 shrink-0">
               <a
                 href={item.href}
                 target={item.href.startsWith('mailto') ? undefined : '_blank'}
                 rel="noopener noreferrer"
-                className="text-[10px] text-gray-600 hover:text-gray-400 transition-colors"
+                className="text-[10px] text-gray-600 hover:text-gray-400 transition-colors whitespace-nowrap"
               >
                 {item.label}
               </a>
-              {i < arr.length - 1 && (
-                <span className="text-gray-800 text-[10px]">·</span>
-              )}
+              {i < arr.length - 1 && <span className="text-gray-800 text-[10px]">·</span>}
             </span>
           ))}
         </footer>
