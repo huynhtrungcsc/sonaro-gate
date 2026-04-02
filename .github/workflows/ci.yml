@@ -23,8 +23,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          rm -f package-lock.json
-          npm install
+          npm ci
 
       - name: TypeScript type-check (frontend)
         run: npx tsc --noEmit -p tsconfig.app.json
