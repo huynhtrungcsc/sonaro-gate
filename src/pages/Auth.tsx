@@ -391,10 +391,17 @@ export default function Auth() {
               background: C.surfaceHdr,
               display: 'flex', flexDirection: 'column', gap: 8,
             }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
-                <CheckCircle2 style={{ width: 12, height: 12, color: C.greenAccent, flexShrink: 0 }} />
-                <span style={{ fontSize: 11, color: C.textSub }}>MFA authentication enabled for this account</span>
-              </div>
+              {mfaStep ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+                  <ShieldCheck style={{ width: 12, height: 12, color: C.greenAccent, flexShrink: 0 }} />
+                  <span style={{ fontSize: 11, color: C.textSub }}>Two-factor authentication required for this account</span>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+                  <CheckCircle2 style={{ width: 12, height: 12, color: C.textMuted, flexShrink: 0 }} />
+                  <span style={{ fontSize: 11, color: C.textMuted }}>Two-factor authentication supported</span>
+                </div>
+              )}
               <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
                 <Lock style={{ width: 12, height: 12, color: C.textMuted, flexShrink: 0 }} />
                 <span style={{ fontSize: 11, color: C.textMuted }}>

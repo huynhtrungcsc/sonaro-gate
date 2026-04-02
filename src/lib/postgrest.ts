@@ -92,7 +92,13 @@ async function request<T = any>(
     const res = await fetch(urlStr, { ...options, headers });
     if (!res.ok) {
       const body = await res.text();
-      return { data: null, error: new Error(`${res.status}: ${body}`) };
+      let message = `Request failed (${res.status})`;
+      try {
+        const json = JSON.parse(body);
+        if (json.message) message = json.message;
+        else if (json.error) message = json.error;
+      } catch { if (body) message = body; }
+      return { data: null, error: new Error(message) };
     }
     if (res.status === 204) return { data: null, error: null };
     const data = await res.json();
