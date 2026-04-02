@@ -36,6 +36,16 @@ const C = {
   red:         '#b91c1c',
 };
 
+const LS_KEY = 'sg_last_session';
+
+function fmtSession(iso: string): string {
+  const d = new Date(iso);
+  return d.toLocaleString('en-US', {
+    month: 'short', day: 'numeric', year: 'numeric',
+    hour: '2-digit', minute: '2-digit', timeZone: 'UTC', hour12: false,
+  }) + ' UTC';
+}
+
 export default function Auth() {
   const [email, setEmail]               = useState('admin@sonaro.local');
   const [password, setPassword]         = useState('Admin123!');
@@ -45,6 +55,8 @@ export default function Auth() {
   const [emailFocus, setEmailFocus]     = useState(false);
   const [passFocus, setPassFocus]       = useState(false);
   const [btnState, setBtnState]         = useState<'idle'|'hover'|'active'>('idle');
+  const [lastSession, setLastSession]   = useState<{ time: string; ip: string } | null>(null);
+  const [clientIp, setClientIp]         = useState<string>('');
 
   const { signIn, user } = useAuth();
   const navigate = useNavigate();
@@ -52,6 +64,20 @@ export default function Auth() {
   useEffect(() => {
     if (user) navigate('/', { replace: true });
   }, [user, navigate]);
+
+  useEffect(() => {
+    // Load previous session from localStorage
+    try {
+      const raw = localStorage.getItem(LS_KEY);
+      if (raw) setLastSession(JSON.parse(raw));
+    } catch {}
+
+    // Fetch real client IP
+    fetch('https://api.ipify.org?format=json')
+      .then(r => r.json())
+      .then((d: { ip: string }) => setClientIp(d.ip))
+      .catch(() => setClientIp(''));
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -74,6 +100,8 @@ export default function Auth() {
         setSubmitting(false);
         return;
       }
+      // Persist session info for next login display
+      localStorage.setItem(LS_KEY, JSON.stringify({ time: new Date().toISOString(), ip: clientIp }));
       navigate('/', { replace: true });
     } catch {
       toast.error('Authentication service unavailable. Try again.');
@@ -268,7 +296,11 @@ export default function Auth() {
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
                 <Lock style={{ width: 12, height: 12, color: C.textMuted, flexShrink: 0 }} />
-                <span style={{ fontSize: 11, color: C.textMuted }}>Last session: Apr 2, 2026  09:14 UTC — 192.168.1.1</span>
+                <span style={{ fontSize: 11, color: C.textMuted }}>
+                  {lastSession
+                    ? `Last session: ${fmtSession(lastSession.time)}${lastSession.ip ? ` — ${lastSession.ip}` : ''}`
+                    : 'Last session: No previous session recorded'}
+                </span>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
                 <MonitorDot style={{ width: 12, height: 12, color: C.textMuted, flexShrink: 0 }} />
