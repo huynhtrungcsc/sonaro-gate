@@ -7,6 +7,13 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 
+const getToken = () => localStorage.getItem('sonaro_token') ?? '';
+async function apiFetch(path: string): Promise<any> {
+  const res = await fetch(path, { headers: { Authorization: `Bearer ${getToken()}` } });
+  if (!res.ok) return [];
+  return res.json();
+}
+
 interface Report {
   id: string;
   name: string;
@@ -28,7 +35,7 @@ const mockReports: Report[] = [
 ];
 
 const Reports = () => {
-  const [reports, setReports] = useState<Report[]>([]);
+  const [reports, setReports] = useState<Report[]>(mockReports);
   const [filter, setFilter] = useState<'all' | 'security' | 'traffic' | 'system' | 'compliance'>('all');
   const [timeRange, setTimeRange] = useState('7d');
 
@@ -55,23 +62,18 @@ const Reports = () => {
 
   const handleDownload = (report: Report) => {
     if (report.status !== 'ready') {
-      toast.error('Report not ready for download');
+      toast.error('Report not ready — click Generate first');
       return;
     }
-    // Generate a realistic report file
-    const content = {
+    const cache = (window as any).__reportCache?.[report.id];
+    const json = cache?.data ?? JSON.stringify({
       reportName: report.name,
       type: report.type,
-      generatedAt: report.lastGenerated?.toISOString(),
+      generatedAt: report.lastGenerated?.toISOString() ?? new Date().toISOString(),
       period: timeRange,
-      summary: `${report.name} — auto-generated report`,
-      data: Array.from({ length: 20 }, (_, i) => ({
-        timestamp: new Date(Date.now() - i * 3600000).toISOString(),
-        metric: Math.round(Math.random() * 1000),
-        status: ['ok', 'warning', 'critical'][Math.floor(Math.random() * 3)],
-      })),
-    };
-    const blob = new Blob([JSON.stringify(content, null, 2)], { type: 'application/json' });
+      note: 'Click Generate Report to populate with live database data',
+    }, null, 2);
+    const blob = new Blob([json], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -80,22 +82,59 @@ const Reports = () => {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-    toast.success(`Downloaded ${report.name}`);
+    toast.success(`Downloaded: ${report.name}`);
   };
 
-  const handleGenerate = (report: Report) => {
+  const handleGenerate = async (report: Report) => {
     setReports(prev => prev.map(r =>
       r.id === report.id ? { ...r, status: 'generating' as const } : r
     ));
-    toast.info(`Generating ${report.name}...`);
-    setTimeout(() => {
+    toast.info(`Generating ${report.name}…`);
+    try {
+      let data: any = { reportName: report.name, type: report.type, generatedAt: new Date().toISOString(), period: timeRange };
+      if (report.type === 'security') {
+        const [threats, auditLogs] = await Promise.all([
+          apiFetch('/api/data/threat_events?order=created_at.desc&limit=200'),
+          apiFetch('/api/data/audit_logs?order=created_at.desc&limit=200'),
+        ]);
+        data.threatEvents = threats;
+        data.auditLogs = auditLogs;
+        data.summary = { threats: threats.length, auditEntries: auditLogs.length };
+      } else if (report.type === 'traffic') {
+        const [rules, stats] = await Promise.all([
+          apiFetch('/api/data/firewall_rules?order=hit_count.desc&limit=50'),
+          apiFetch('/api/data/traffic_stats?order=recorded_at.desc&limit=100'),
+        ]);
+        data.firewallRules = rules;
+        data.trafficStats = stats;
+        data.summary = { rules: rules.length, statsRecords: stats.length };
+      } else if (report.type === 'system') {
+        const [metrics, settings] = await Promise.all([
+          apiFetch('/api/data/system_metrics?order=recorded_at.desc&limit=48'),
+          apiFetch('/api/data/system_settings'),
+        ]);
+        data.metrics = metrics;
+        data.settings = settings;
+        data.summary = { metricsRecords: metrics.length };
+      } else {
+        const rules = await apiFetch('/api/data/firewall_rules?limit=100');
+        data.rules = rules;
+        data.summary = { totalRules: rules.length };
+      }
+      const json = JSON.stringify(data, null, 2);
+      const sizeKb = (new TextEncoder().encode(json).length / 1024);
+      const size = sizeKb > 1024 ? `${(sizeKb / 1024).toFixed(1)} MB` : `${sizeKb.toFixed(0)} KB`;
       setReports(prev => prev.map(r =>
-        r.id === report.id
-          ? { ...r, status: 'ready' as const, lastGenerated: new Date(), size: `${(Math.random() * 10 + 1).toFixed(1)} MB` }
-          : r
+        r.id === report.id ? { ...r, status: 'ready' as const, lastGenerated: new Date(), size } : r
       ));
-      toast.success(`${report.name} is ready`);
-    }, 2500);
+      toast.success(`${report.name} is ready — click Download`);
+      // Store data for download
+      (window as any).__reportCache = (window as any).__reportCache || {};
+      (window as any).__reportCache[report.id] = { data: json, name: report.name };
+    } catch {
+      setReports(prev => prev.map(r => r.id === report.id ? { ...r, status: 'ready' as const } : r));
+      toast.error(`Failed to generate ${report.name}`);
+    }
   };
 
   const stats = [

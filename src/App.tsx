@@ -47,6 +47,8 @@ import WildcardFQDN from "./pages/WildcardFQDN";
 import Services from "./pages/Services";
 import DNSFilter from "./pages/DNSFilter";
 import UserGroups from "./pages/UserGroups";
+import LocalUsers from "./pages/LocalUsers";
+import AuthServers from "./pages/AuthServers";
 import NotFound from "./pages/NotFound";
 
 
@@ -121,7 +123,9 @@ const App = () => (
             <Route path="/vpn/wireguard" element={<P><VPN /></P>} />
 
             {/* Users */}
-            <Route path="/users/groups" element={<P><UserGroups /></P>} />
+            <Route path="/users/local"        element={<P><LocalUsers /></P>} />
+            <Route path="/users/groups"       element={<P><UserGroups /></P>} />
+            <Route path="/users/auth-servers" element={<P><AuthServers /></P>} />
 
             {/* Monitoring */}
             <Route path="/monitoring/logs" element={<P><SystemLogs /></P>} />

@@ -1,9 +1,12 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { StatsBar } from '@/components/ui/stats-bar';
 import { Shell } from '@/components/layout/Shell';
 import { cn } from '@/lib/utils';
 import { Plus, Edit, Trash2, RefreshCw, Search, Users, Shield } from 'lucide-react';
 import { toast } from 'sonner';
+import { systemSettingsApi } from '@/lib/api';
+import { useSystemSettings } from '@/hooks/useDbData';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
@@ -75,7 +78,10 @@ const initialGroups: UserGroup[] = [
 ];
 
 const UserGroups = () => {
-  const [groups, setGroups] = useState<UserGroup[]>([]);
+  const queryClient = useQueryClient();
+  const { data: dbSettings = [] } = useSystemSettings();
+  const [groups, setGroups] = useState<UserGroup[]>(initialGroups);
+  const [loaded, setLoaded] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
@@ -85,6 +91,24 @@ const UserGroups = () => {
     name: '', type: 'firewall' as UserGroup['type'],
     members: '', matchType: 'any' as 'any' | 'all', comment: '',
   });
+
+  // Load from DB on first fetch
+  useEffect(() => {
+    if (loaded || !(dbSettings as any[]).length) return;
+    const saved = (dbSettings as any[]).find((s: any) => s.key === 'user_groups')?.value;
+    if (saved) {
+      try { setGroups(JSON.parse(saved)); } catch {}
+    }
+    setLoaded(true);
+  }, [dbSettings, loaded]);
+
+  const saveGroups = async (next: UserGroup[]) => {
+    setGroups(next);
+    try {
+      await systemSettingsApi.upsert('user_groups', JSON.stringify(next));
+      queryClient.invalidateQueries({ queryKey: ['system-settings'] });
+    } catch { toast.error('Failed to persist groups'); }
+  };
 
   const selectedGroup = groups.find(g => g.id === selectedId);
 
@@ -102,7 +126,7 @@ const UserGroups = () => {
     local: groups.filter(g => g.type === 'local').length,
   };
 
-  const handleAdd = () => {
+  const handleAdd = async () => {
     if (!form.name) { toast.error('Group name is required'); return; }
     if (groups.some(g => g.name === form.name)) { toast.error('Group name already exists'); return; }
     const grp: UserGroup = {
@@ -111,27 +135,28 @@ const UserGroups = () => {
       matchType: form.matchType, comment: form.comment,
       createdAt: new Date().toISOString().split('T')[0], references: 0,
     };
-    setGroups(prev => [...prev, grp]);
+    await saveGroups([...groups, grp]);
     setModalOpen(false);
     setForm({ name: '', type: 'firewall', members: '', matchType: 'any', comment: '' });
-    toast.success('Group created successfully');
+    toast.success('Group created and saved');
   };
 
-  const handleEdit = () => {
+  const handleEdit = async () => {
     if (!selectedGroup) return;
-    setGroups(prev => prev.map(g =>
+    const next = groups.map(g =>
       g.id === selectedGroup.id ? {
         ...g, name: form.name || g.name, type: form.type,
         members: form.members.split(',').map(m => m.trim()).filter(Boolean),
         matchType: form.matchType, comment: form.comment,
       } : g
-    ));
+    );
+    await saveGroups(next);
     setEditModalOpen(false);
-    toast.success('Group updated successfully');
+    toast.success('Group updated and saved');
   };
 
-  const handleDelete = (id: string) => {
-    setGroups(prev => prev.filter(g => g.id !== id));
+  const handleDelete = async (id: string) => {
+    await saveGroups(groups.filter(g => g.id !== id));
     if (selectedId === id) setSelectedId(null);
     setDeleteConfirm(null);
     toast.success('Group deleted');
@@ -180,7 +205,7 @@ const UserGroups = () => {
             <span>Delete</span>
           </button>
           <div className="forti-toolbar-separator" />
-          <button className="forti-toolbar-btn" onClick={() => toast.success('Data refreshed')}>
+          <button className="forti-toolbar-btn" onClick={() => { setLoaded(false); queryClient.invalidateQueries({ queryKey: ['system-settings'] }); }}>
             <RefreshCw size={12} />
             <span>Refresh</span>
           </button>

@@ -145,7 +145,9 @@ const navigation: NavSection[] = [
     icon: FgUserDevice,
     defaultOpen: false,
     items: [
-      { label: 'User Groups', path: '/users/groups' },
+      { label: 'Local Users',          path: '/users/local' },
+      { label: 'User Groups',          path: '/users/groups' },
+      { label: 'Authentication Servers', path: '/users/auth-servers' },
     ],
   },
 
