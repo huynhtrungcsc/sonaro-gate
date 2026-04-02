@@ -9,7 +9,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from 'sonner';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { db } from '@/lib/postgrest';
+import { getStoredSession } from '@/lib/postgrest';
 import { useAuth } from '@/contexts/AuthContext';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
@@ -36,51 +36,29 @@ interface AdminUser {
   avatarUrl: string | null;
 }
 
-
-// ── Fetch from DB ───────────────────────────────
-async function fetchAdminUsers(): Promise<AdminUser[]> {
-  const { data: roles, error: rolesErr } = await db
-    .from('user_roles')
-    .select('user_id, role, created_at');
-  if (rolesErr) throw rolesErr;
-
-  const userIds = [...new Set((roles as any[])?.map((r: any) => r.user_id) ?? [])];
-  if (userIds.length === 0) return [];
-
-  const { data: profiles, error: profErr } = await db
-    .from('profiles')
-    .select('*')
-    .in('user_id', userIds);
-  if (profErr) throw profErr;
-
-  const profileMap = new Map((profiles as any[] ?? []).map((p: any) => [p.user_id, p]));
-
-  const userMap = new Map<string, AdminUser>();
-  for (const r of (roles as any[]) ?? []) {
-    if (!userMap.has(r.user_id)) {
-      const p = profileMap.get(r.user_id) as any;
-      userMap.set(r.user_id, {
-        userId: r.user_id,
-        fullName: p?.full_name || '',
-        email: p?.email || '',
-        roles: [],
-        createdAt: r.created_at,
-        avatarUrl: p?.avatar_url ?? null,
-      });
-    }
-    userMap.get(r.user_id)!.roles.push(r.role as AppRole);
+// ── Auth-aware fetch helper ──────────────────────
+async function authedFetch(path: string, opts: RequestInit = {}) {
+  const session = getStoredSession();
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(opts.headers as Record<string, string> ?? {}),
+  };
+  if (session?.token) headers['Authorization'] = `Bearer ${session.token}`;
+  const res = await fetch(`/api${path}`, { ...opts, headers });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.message || `Request failed: ${res.status}`);
   }
-  return Array.from(userMap.values());
+  return res.json();
 }
 
-async function fetchAuditLogs(limit = 50) {
-  const { data, error } = await db
-    .from('audit_logs')
-    .select('*')
-    .order('created_at', { ascending: false })
-    .limit(limit);
-  if (error) throw error;
-  return data ?? [];
+// ── Fetch functions ──────────────────────────────
+async function fetchAdminUsers(): Promise<AdminUser[]> {
+  return authedFetch('/admin/users');
+}
+
+async function fetchAuditLogs(limit = 100) {
+  return authedFetch(`/admin/audit-logs?limit=${limit}`);
 }
 
 // ── Style maps ──────────────────────────────────
@@ -121,9 +99,9 @@ const AdminProfiles = () => {
   const queryClient = useQueryClient();
 
   // ── Queries ─────────────────────────────────
-  const { data: adminUsers = [], isLoading: loadingUsers } = useQuery({
+  const { data: adminUsers = [], isLoading: loadingUsers } = useQuery<AdminUser[]>({
     queryKey: ['admin-users'],
-    queryFn: () => fetchAdminUsers(),
+    queryFn: fetchAdminUsers,
   });
 
   const { data: auditLogs = [], isLoading: loadingLogs } = useQuery<any[]>({
@@ -134,11 +112,10 @@ const AdminProfiles = () => {
   // ── Mutations ───────────────────────────────
   const createMutation = useMutation({
     mutationFn: async (input: { fullName: string; email: string; password: string; role: AppRole }) => {
-      // Self-hosted: create user via PostgREST RPC
-      const { data, error: authErr } = await db.from('rpc/create_admin_user').insert({
-        p_email: input.email, p_password: input.password, p_full_name: input.fullName, p_role: input.role,
+      return authedFetch('/admin/users', {
+        method: 'POST',
+        body: JSON.stringify({ email: input.email, password: input.password, full_name: input.fullName, role: input.role }),
       });
-      if (authErr) throw authErr;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin-users'] });
@@ -150,14 +127,11 @@ const AdminProfiles = () => {
   });
 
   const updateRoleMutation = useMutation({
-    mutationFn: async ({ userId, role }: { userId: string; role: AppRole }) => {
-      const { error: delErr } = await db.from('user_roles').delete().eq('user_id', userId);
-      if (delErr) throw delErr;
-      const { error: insErr } = await db.from('user_roles').insert({ user_id: userId, role });
-      if (insErr) throw insErr;
-      if (newUser.fullName) {
-        await db.from('profiles').update({ full_name: newUser.fullName }).eq('user_id', userId);
-      }
+    mutationFn: async ({ userId, fullName, role }: { userId: string; fullName: string; role: AppRole }) => {
+      return authedFetch(`/admin/users/${userId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ full_name: fullName, role }),
+      });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin-users'] });
@@ -169,8 +143,7 @@ const AdminProfiles = () => {
 
   const deleteMutation = useMutation({
     mutationFn: async (userId: string) => {
-      const { error } = await db.from('user_roles').delete().eq('user_id', userId);
-      if (error) throw error;
+      return authedFetch(`/admin/users/${userId}`, { method: 'DELETE' });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin-users'] });
@@ -228,7 +201,7 @@ const AdminProfiles = () => {
 
   const handleEdit = () => {
     if (!selectedUser) return;
-    updateRoleMutation.mutate({ userId: selectedUser.userId, role: newUser.role });
+    updateRoleMutation.mutate({ userId: selectedUser.userId, fullName: newUser.fullName, role: newUser.role });
   };
 
   const openEditModal = () => {
@@ -586,9 +559,7 @@ const AdminProfiles = () => {
             <AlertDialogAction
               className="h-7 text-[11px] bg-red-600 hover:bg-red-700"
               onClick={() => {
-                if (deleteConfirm) {
-                                deleteMutation.mutate(deleteConfirm);
-                }
+                if (deleteConfirm) deleteMutation.mutate(deleteConfirm);
               }}
             >
               Remove

@@ -13,7 +13,7 @@ import { fileURLToPath } from 'url';
 import { createServer as createHttpServer } from 'http';
 import { attachWebSocket } from './ws.js';
 import { db } from './db.js';
-import { users, userRoles, networkInterfaces, systemSettings, firewallRules, natRules, aliases, schedules, certificates, staticRoutes, vpnTunnels, configBackups, notificationChannels, notificationRules } from '../shared/schema.js';
+import { users, userRoles, networkInterfaces, systemSettings, firewallRules, natRules, aliases, schedules, certificates, staticRoutes, vpnTunnels, configBackups, notificationChannels, notificationRules, auditLogs } from '../shared/schema.js';
 import { encryptConfig, decryptConfig, dispatchNotification, testChannel, startNotificationScheduler } from './notifications.js';
 import { signToken, checkPassword, requireAuth, signMfaChallenge, verifyMfaChallenge } from './auth.js';
 import * as OTPAuth from 'otpauth';
@@ -54,7 +54,7 @@ import {
   getInterfaceDetails,
   isRoot,
 } from './iptables.js';
-import { eq } from 'drizzle-orm';
+import { eq, desc, inArray } from 'drizzle-orm';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
@@ -252,6 +252,116 @@ async function startWebServer() {
     } catch (err: any) {
       console.error('[Auth] Change password error:', err.message);
       res.status(500).json({ message: 'Internal server error' });
+    }
+  });
+
+  // ─────────────────────────────────────────────────
+  // Admin Users & Audit Logs
+  // ─────────────────────────────────────────────────
+
+  // GET /api/admin/users — list all users with their roles
+  app.get('/api/admin/users', requireAuth, async (_req, res) => {
+    try {
+      const allUsers = await db.select({
+        id: users.id, email: users.email, full_name: users.full_name,
+        avatar_url: users.avatar_url, created_at: users.created_at,
+      }).from(users);
+      const allRoles = await db.select().from(userRoles);
+      const roleMap = new Map<string, string[]>();
+      for (const r of allRoles) {
+        if (!roleMap.has(r.user_id)) roleMap.set(r.user_id, []);
+        roleMap.get(r.user_id)!.push(r.role);
+      }
+      const result = allUsers
+        .filter(u => (roleMap.get(u.id) ?? []).length > 0)
+        .map(u => ({
+          userId: u.id,
+          fullName: u.full_name,
+          email: u.email,
+          avatarUrl: u.avatar_url,
+          roles: roleMap.get(u.id) ?? [],
+          createdAt: u.created_at,
+        }));
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // POST /api/admin/users — create new admin user
+  app.post('/api/admin/users', requireAuth, async (req, res) => {
+    const { email, password, full_name, role } = req.body;
+    if (!email || !password || !role) {
+      return res.status(400).json({ message: 'email, password and role are required' });
+    }
+    if (password.length < 8) {
+      return res.status(400).json({ message: 'Password must be at least 8 characters' });
+    }
+    const validRoles = ['super_admin', 'admin', 'operator', 'auditor'];
+    if (!validRoles.includes(role)) {
+      return res.status(400).json({ message: 'Invalid role' });
+    }
+    try {
+      const [existing] = await db.select({ id: users.id }).from(users).where(eq(users.email, email)).limit(1);
+      if (existing) return res.status(409).json({ message: 'A user with that email already exists' });
+      const { hashPassword } = await import('./auth.js');
+      const [newUser] = await db.insert(users).values({
+        email, full_name: full_name || '', password_hash: hashPassword(password),
+      }).returning({ id: users.id });
+      await db.insert(userRoles).values({ user_id: newUser.id, role });
+      res.status(201).json({ success: true, userId: newUser.id });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // PATCH /api/admin/users/:id — update user full_name and/or role
+  app.patch('/api/admin/users/:id', requireAuth, async (req, res) => {
+    const { id } = req.params;
+    const { full_name, role } = req.body;
+    const validRoles = ['super_admin', 'admin', 'operator', 'auditor'];
+    if (role && !validRoles.includes(role)) {
+      return res.status(400).json({ message: 'Invalid role' });
+    }
+    try {
+      const [user] = await db.select({ id: users.id }).from(users).where(eq(users.id, id)).limit(1);
+      if (!user) return res.status(404).json({ message: 'User not found' });
+      if (full_name !== undefined) {
+        await db.update(users).set({ full_name, updated_at: new Date() }).where(eq(users.id, id));
+      }
+      if (role) {
+        await db.delete(userRoles).where(eq(userRoles.user_id, id));
+        await db.insert(userRoles).values({ user_id: id, role });
+      }
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // DELETE /api/admin/users/:id — remove all roles (revoke admin access)
+  app.delete('/api/admin/users/:id', requireAuth, async (req, res) => {
+    const { id } = req.params;
+    const requesterId = (req as any).user.sub;
+    if (id === requesterId) {
+      return res.status(400).json({ message: 'You cannot remove your own admin access' });
+    }
+    try {
+      await db.delete(userRoles).where(eq(userRoles.user_id, id));
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // GET /api/admin/audit-logs — recent audit log entries
+  app.get('/api/admin/audit-logs', requireAuth, async (req, res) => {
+    const limit = Math.min(parseInt(String(req.query.limit ?? '100')), 500);
+    try {
+      const logs = await db.select().from(auditLogs).orderBy(desc(auditLogs.created_at)).limit(limit);
+      res.json(logs);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
     }
   });
 
