@@ -121,6 +121,7 @@ const App = () => (
             <Route path="/vpn/ipsec" element={<P><VPN /></P>} />
             <Route path="/vpn/openvpn" element={<P><VPN /></P>} />
             <Route path="/vpn/wireguard" element={<P><VPN /></P>} />
+            <Route path="/vpn/monitor" element={<P><VPN /></P>} />
 
             {/* Users */}
             <Route path="/users/local"        element={<P><LocalUsers /></P>} />

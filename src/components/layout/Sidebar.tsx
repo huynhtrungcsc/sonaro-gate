@@ -136,6 +136,8 @@ const navigation: NavSection[] = [
     defaultOpen: false,
     items: [
       { label: 'IPsec Tunnels', path: '/vpn/ipsec' },
+      { label: 'WireGuard', path: '/vpn/wireguard' },
+      { label: 'VPN Monitor', path: '/vpn/monitor' },
     ],
   },
 

@@ -8,6 +8,7 @@ import {
   dnsForwardZones, dnsLocalRecords, dnsFilterProfiles,
   services, schedules, trafficShapers, trafficShapingPolicies,
   virtualIps, ipPools, wildcardFqdns,
+  vpnTunnels, idsSignatures,
 } from '../shared/schema.js';
 import { hashPassword } from './auth.js';
 import { eq, sql } from 'drizzle-orm';
@@ -178,6 +179,42 @@ async function ensureWildcardFQDNs() {
   ]);
 }
 
+async function ensureVPNTunnels() {
+  const count = await db.select({ c: sql<number>`count(*)` }).from(vpnTunnels);
+  if (Number(count[0].c) > 0) return;
+  const ipsecCfg = JSON.stringify({ ikeVersion: 'ikev2', encryption: 'aes256', hash: 'sha256', psk: 'changeme123!', local_subnet: '192.168.1.0/24', remote_subnet: '10.10.0.0/24', dpd_action: 'restart', dpd_delay: 30 });
+  const wgCfg   = JSON.stringify({ interface: 'wg0', privateKey: '', address: '10.200.0.1/24', listenPort: 51820, peerPublicKey: '', allowedIPs: '10.200.0.0/24', persistentKeepalive: 25 });
+  await db.insert(vpnTunnels).values([
+    { name: 'HQ-Branch-01',   type: 'ipsec',     status: 'connected',    remote_gateway: '203.0.113.10', local_network: '192.168.1.0/24', remote_network: '10.10.0.0/24', bytes_in: 1_542_000, bytes_out: 987_000, uptime: 86400, config_json: ipsecCfg, comment: 'HQ to Branch-01 IPsec tunnel' },
+    { name: 'HQ-Branch-02',   type: 'ipsec',     status: 'disconnected', remote_gateway: '203.0.113.20', local_network: '192.168.1.0/24', remote_network: '10.20.0.0/24', bytes_in: 0,         bytes_out: 0,       uptime: 0,     config_json: ipsecCfg, comment: 'HQ to Branch-02 IPsec tunnel' },
+    { name: 'HQ-DataCenter',  type: 'ipsec',     status: 'connected',    remote_gateway: '198.51.100.5',  local_network: '192.168.1.0/24', remote_network: '172.16.0.0/16', bytes_in: 5_200_000, bytes_out: 3_400_000, uptime: 172800, config_json: ipsecCfg, comment: 'Site-to-site to data center' },
+    { name: 'Remote-WG-VPN',  type: 'wireguard', status: 'connected',    remote_gateway: '203.0.113.50',  local_network: '10.200.0.1/32',  remote_network: '10.200.0.0/24', bytes_in: 2_100_000, bytes_out: 1_800_000, uptime: 43200, config_json: wgCfg,    comment: 'WireGuard remote access VPN' },
+    { name: 'Mobile-WG-VPN',  type: 'wireguard', status: 'disconnected', remote_gateway: '',              local_network: '10.200.0.2/32',  remote_network: '10.200.0.0/24', bytes_in: 0,         bytes_out: 0,       uptime: 0,     config_json: wgCfg,    comment: 'WireGuard for mobile clients' },
+  ]);
+}
+
+async function ensureIDSSignatures() {
+  const count = await db.select({ c: sql<number>`count(*)` }).from(idsSignatures);
+  if (Number(count[0].c) > 0) return;
+  await db.insert(idsSignatures).values([
+    { sid: 1000001, name: 'ET SCAN Nmap Scan',                    category: 'scan',        severity: 'medium', action: 'alert',  enabled: true,  hits: 142, description: 'Detects Nmap network scanning activity',                    cve: null },
+    { sid: 1000002, name: 'ET EXPLOIT EternalBlue SMB RCE',       category: 'exploit',     severity: 'critical',action: 'drop',   enabled: true,  hits: 7,   description: 'MS17-010 SMBv1 remote code execution (EternalBlue)',        cve: 'CVE-2017-0144' },
+    { sid: 1000003, name: 'ET MALWARE Emotet CnC Beacon',         category: 'malware',     severity: 'critical',action: 'drop',   enabled: true,  hits: 3,   description: 'Detects Emotet trojan command-and-control communication',   cve: null },
+    { sid: 1000004, name: 'ET WEB_SERVER SQL Injection Attempt',  category: 'web_attack',  severity: 'high',   action: 'alert',  enabled: true,  hits: 58,  description: 'Generic SQL injection pattern in HTTP request',             cve: null },
+    { sid: 1000005, name: 'ET DOS UDP Flood',                     category: 'dos',         severity: 'high',   action: 'drop',   enabled: true,  hits: 1,   description: 'High-rate UDP flood consistent with DDoS',                  cve: null },
+    { sid: 1000006, name: 'ET POLICY Cleartext Password over HTTP',category: 'policy',     severity: 'medium', action: 'alert',  enabled: true,  hits: 29,  description: 'Password transmitted in cleartext via HTTP Basic Auth',     cve: null },
+    { sid: 1000007, name: 'ET TROJAN Cobalt Strike Beacon',       category: 'malware',     severity: 'critical',action: 'drop',   enabled: true,  hits: 2,   description: 'Cobalt Strike C2 beacon detected in network traffic',       cve: null },
+    { sid: 1000008, name: 'ET SCAN SSH Brute Force Attempt',      category: 'scan',        severity: 'medium', action: 'alert',  enabled: true,  hits: 386, description: 'Multiple failed SSH login attempts indicating brute force', cve: null },
+    { sid: 1000009, name: 'ET WEB_CLIENT IE Use-After-Free',      category: 'exploit',     severity: 'high',   action: 'alert',  enabled: false, hits: 0,   description: 'Internet Explorer use-after-free vulnerability exploit',    cve: 'CVE-2020-1380' },
+    { sid: 1000010, name: 'ET POLICY TOR Exit Node Traffic',      category: 'policy',      severity: 'low',    action: 'alert',  enabled: true,  hits: 14,  description: 'Traffic destined for known TOR exit nodes',                 cve: null },
+    { sid: 1000011, name: 'ET MALWARE Mirai Botnet HTTP Request',  category: 'malware',     severity: 'high',   action: 'drop',   enabled: true,  hits: 5,   description: 'Mirai IoT botnet HTTP C2 communication pattern',           cve: null },
+    { sid: 1000012, name: 'ET EXPLOIT Log4Shell RCE Attempt',     category: 'exploit',     severity: 'critical',action: 'drop',   enabled: true,  hits: 21,  description: 'Log4j2 JNDI injection remote code execution attempt',       cve: 'CVE-2021-44228' },
+    { sid: 1000013, name: 'ET SCAN Port Scan SYN Sweep',          category: 'scan',        severity: 'low',    action: 'alert',  enabled: true,  hits: 94,  description: 'TCP SYN scan sweeping multiple destination ports',          cve: null },
+    { sid: 1000014, name: 'ET WEB_SERVER XSS Attempt Generic',    category: 'web_attack',  severity: 'medium', action: 'alert',  enabled: true,  hits: 33,  description: 'Cross-site scripting attempt in HTTP parameter',            cve: null },
+    { sid: 1000015, name: 'ET POLICY DNS-over-HTTPS Bypass',      category: 'policy',      severity: 'low',    action: 'alert',  enabled: false, hits: 0,   description: 'DoH traffic that may bypass DNS filtering controls',        cve: null },
+  ]);
+}
+
 export async function seedDatabase() {
   try {
     await ensureSystemSettings();
@@ -189,6 +226,8 @@ export async function seedDatabase() {
     await ensureVirtualIPs();
     await ensureIPPools();
     await ensureWildcardFQDNs();
+    await ensureVPNTunnels();
+    await ensureIDSSignatures();
 
     const existing = await db
       .select()

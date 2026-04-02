@@ -53,61 +53,6 @@ interface DNSFilterProfile {
   references: number;
 }
 
-const mockProfiles: DNSFilterProfile[] = [
-  {
-    id: '1',
-    name: 'default',
-    comment: 'Default DNS filter profile',
-    domainFilter: true,
-    fortiGuardCategory: true,
-    safeSearch: true,
-    youtubeRestrict: false,
-    logAllDomains: true,
-    enabled: true,
-    blockedCategories: 12,
-    references: 8
-  },
-  {
-    id: '2',
-    name: 'strict',
-    comment: 'Strict filtering for guest network',
-    domainFilter: true,
-    fortiGuardCategory: true,
-    safeSearch: true,
-    youtubeRestrict: true,
-    logAllDomains: true,
-    enabled: true,
-    blockedCategories: 24,
-    references: 3
-  },
-  {
-    id: '3',
-    name: 'minimal',
-    comment: 'Minimal filtering for trusted users',
-    domainFilter: true,
-    fortiGuardCategory: false,
-    safeSearch: false,
-    youtubeRestrict: false,
-    logAllDomains: false,
-    enabled: true,
-    blockedCategories: 5,
-    references: 2
-  },
-  {
-    id: '4',
-    name: 'kids-safe',
-    comment: 'Child-safe browsing profile',
-    domainFilter: true,
-    fortiGuardCategory: true,
-    safeSearch: true,
-    youtubeRestrict: true,
-    logAllDomains: true,
-    enabled: true,
-    blockedCategories: 32,
-    references: 0
-  },
-];
-
 const DNSFilter = () => {
   const queryClient = useQueryClient();
   const { data: profiles = [] } = useDNSFilterProfiles();
@@ -209,6 +154,7 @@ const DNSFilter = () => {
   };
 
   const handleRefresh = () => {
+    queryClient.invalidateQueries({ queryKey: ['dns-filter-profiles'] });
     toast.success('Profiles refreshed');
   };
 
