@@ -51,6 +51,7 @@ const pathToLabel: Record<string, string> = {
   '/system': 'System',
   '/system/general': 'Settings',
   '/system/admins': 'Administrators',
+  '/system/notifications': 'Notifications',
   '/system/ha': 'High Availability',
   '/system/certificates': 'Certificates',
   '/system/users': 'User Definition',

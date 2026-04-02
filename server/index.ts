@@ -13,7 +13,8 @@ import { fileURLToPath } from 'url';
 import { createServer as createHttpServer } from 'http';
 import { attachWebSocket } from './ws.js';
 import { db } from './db.js';
-import { users, userRoles, networkInterfaces, systemSettings, firewallRules, natRules, aliases, schedules, certificates, staticRoutes, vpnTunnels, configBackups } from '../shared/schema.js';
+import { users, userRoles, networkInterfaces, systemSettings, firewallRules, natRules, aliases, schedules, certificates, staticRoutes, vpnTunnels, configBackups, notificationChannels, notificationRules } from '../shared/schema.js';
+import { encryptConfig, decryptConfig, dispatchNotification, testChannel, startNotificationScheduler } from './notifications.js';
 import { signToken, checkPassword, requireAuth, signMfaChallenge, verifyMfaChallenge } from './auth.js';
 import * as OTPAuth from 'otpauth';
 import QRCode from 'qrcode';
@@ -60,6 +61,12 @@ const ROOT = path.resolve(__dirname, '..');
 const isDev = process.env.NODE_ENV !== 'production';
 const PORT = parseInt(process.env.PORT || '5000');
 
+// Mask all but first 4 and last 4 chars of a secret value
+function maskSecret(value: string): string {
+  if (value.length <= 8) return '••••••••';
+  return value.slice(0, 4) + '••••••••' + value.slice(-4);
+}
+
 async function startWebServer() {
   const app = express();
   app.use(cors());
@@ -89,6 +96,12 @@ async function startWebServer() {
     try {
       const [user] = await db.select().from(users).where(eq(users.email, p_email)).limit(1);
       if (!user || !checkPassword(p_password, user.password_hash)) {
+        // Fire-and-forget auth failure notification
+        dispatchNotification({
+          type: 'auth_failure', severity: 'high',
+          message: `Failed login attempt for ${p_email}`,
+          source_ip: (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.socket.remoteAddress || 'unknown',
+        }).catch(() => {});
         return res.status(401).json({ message: 'Invalid login credentials' });
       }
       // If MFA is enabled, issue a short-lived challenge token
@@ -211,6 +224,150 @@ async function startWebServer() {
     } catch (err: any) {
       console.error('[MFA] Disable error:', err.message);
       res.status(500).json({ message: 'Internal server error' });
+    }
+  });
+
+  // ─────────────────────────────────────────────────
+  // Notifications (Telegram / Discord)
+  // ─────────────────────────────────────────────────
+
+  // List channels (secrets masked)
+  app.get('/api/notifications/channels', requireAuth, async (_req, res) => {
+    try {
+      const channels = await db.select().from(notificationChannels);
+      const safe = channels.map(ch => ({
+        id: ch.id, name: ch.name, type: ch.type,
+        enabled: ch.enabled, created_at: ch.created_at,
+        // Return masked config so the client can show field names but not values
+        config_preview: (() => {
+          try {
+            const raw = JSON.parse(decryptConfig(ch.config_enc)) as Record<string, string>;
+            return Object.fromEntries(Object.entries(raw).map(([k, v]) => [k, maskSecret(v)]));
+          } catch { return {}; }
+        })(),
+      }));
+      res.json(safe);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Create channel
+  app.post('/api/notifications/channels', requireAuth, async (req, res) => {
+    const { name, type, config } = req.body;
+    if (!name || !type || !config) return res.status(400).json({ message: 'name, type, config required' });
+    if (!['telegram', 'discord'].includes(type)) return res.status(400).json({ message: 'type must be telegram or discord' });
+    // Validate required config fields
+    if (type === 'telegram' && (!config.bot_token || !config.chat_id)) {
+      return res.status(400).json({ message: 'Telegram requires bot_token and chat_id' });
+    }
+    if (type === 'discord' && !config.webhook_url) {
+      return res.status(400).json({ message: 'Discord requires webhook_url' });
+    }
+    if (type === 'discord' && !config.webhook_url.startsWith('https://discord.com/api/webhooks/')) {
+      return res.status(400).json({ message: 'Invalid Discord webhook URL' });
+    }
+    try {
+      const config_enc = encryptConfig(JSON.stringify(config));
+      const [ch] = await db.insert(notificationChannels).values({ name, type, config_enc }).returning();
+      res.json({ id: ch.id, name: ch.name, type: ch.type, enabled: ch.enabled });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Update channel
+  app.put('/api/notifications/channels/:id', requireAuth, async (req, res) => {
+    const { id } = req.params;
+    const { name, enabled, config } = req.body;
+    try {
+      const updates: Record<string, any> = { updated_at: new Date() };
+      if (name     !== undefined) updates.name    = name;
+      if (enabled  !== undefined) updates.enabled = enabled;
+      if (config) updates.config_enc = encryptConfig(JSON.stringify(config));
+      await db.update(notificationChannels).set(updates).where(eq(notificationChannels.id, id));
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Delete channel
+  app.delete('/api/notifications/channels/:id', requireAuth, async (req, res) => {
+    const { id } = req.params;
+    try {
+      await db.delete(notificationChannels).where(eq(notificationChannels.id, id));
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Test channel — send a test message
+  app.post('/api/notifications/channels/:id/test', requireAuth, async (req, res) => {
+    const { id } = req.params;
+    const result = await testChannel(id);
+    if (result.ok) res.json({ success: true });
+    else res.status(400).json({ message: result.error });
+  });
+
+  // List rules
+  app.get('/api/notifications/rules', requireAuth, async (_req, res) => {
+    try {
+      const rules = await db.select().from(notificationRules);
+      res.json(rules);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Create rule
+  app.post('/api/notifications/rules', requireAuth, async (req, res) => {
+    const { channel_id, name, event_types, trigger_mode, schedule_interval, min_severity } = req.body;
+    if (!channel_id || !name || !event_types?.length) {
+      return res.status(400).json({ message: 'channel_id, name, event_types required' });
+    }
+    try {
+      const [rule] = await db.insert(notificationRules).values({
+        channel_id, name,
+        event_types: event_types as string[],
+        trigger_mode: trigger_mode ?? 'realtime',
+        schedule_interval: schedule_interval ?? 60,
+        min_severity: min_severity ?? 'medium',
+      }).returning();
+      res.json(rule);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Update rule
+  app.put('/api/notifications/rules/:id', requireAuth, async (req, res) => {
+    const { id } = req.params;
+    const { name, event_types, trigger_mode, schedule_interval, min_severity, enabled } = req.body;
+    try {
+      const updates: Record<string, any> = { updated_at: new Date() };
+      if (name              !== undefined) updates.name              = name;
+      if (event_types       !== undefined) updates.event_types       = event_types;
+      if (trigger_mode      !== undefined) updates.trigger_mode      = trigger_mode;
+      if (schedule_interval !== undefined) updates.schedule_interval = schedule_interval;
+      if (min_severity      !== undefined) updates.min_severity      = min_severity;
+      if (enabled           !== undefined) updates.enabled           = enabled;
+      await db.update(notificationRules).set(updates).where(eq(notificationRules.id, id));
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Delete rule
+  app.delete('/api/notifications/rules/:id', requireAuth, async (req, res) => {
+    const { id } = req.params;
+    try {
+      await db.delete(notificationRules).where(eq(notificationRules.id, id));
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
     }
   });
 
@@ -707,6 +864,7 @@ async function main() {
 
   // 3. Start background agent
   startAgent();
+  startNotificationScheduler();
 
   // 4. Start web server
   await startWebServer();

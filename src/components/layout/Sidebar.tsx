@@ -173,6 +173,7 @@ const navigation: NavSection[] = [
     items: [
       { label: 'General Settings', path: '/system/general' },
       { label: 'Administrators', path: '/system/admins' },
+      { label: 'Notifications', path: '/system/notifications' },
       { label: 'Certificates', path: '/system/certificates' },
       { label: 'High Availability', path: '/system/ha' },
       { label: 'Config Backup', path: '/system/backup' },

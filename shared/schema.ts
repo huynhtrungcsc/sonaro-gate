@@ -554,6 +554,35 @@ export const configBackups = pgTable('config_backups', {
 });
 export type ConfigBackup = typeof configBackups.$inferSelect;
 
+// ── Notification Channels ─────────────────────────────
+export const notificationChannels = pgTable('notification_channels', {
+  id: uuid('id').primaryKey().default(genUuid()),
+  name: text('name').notNull(),
+  type: text('type').notNull(),         // 'telegram' | 'discord'
+  config_enc: text('config_enc').notNull(), // AES-256-GCM encrypted JSON
+  enabled: boolean('enabled').notNull().default(true),
+  created_at: timestamp('created_at', { withTimezone: true }).notNull().default(now()),
+  updated_at: timestamp('updated_at', { withTimezone: true }).notNull().default(now()),
+});
+
+// ── Notification Rules ────────────────────────────────
+export const notificationRules = pgTable('notification_rules', {
+  id: uuid('id').primaryKey().default(genUuid()),
+  channel_id: uuid('channel_id').notNull().references(() => notificationChannels.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  event_types: text('event_types').array().notNull(),    // e.g. ['threat_detected','auth_failure']
+  trigger_mode: text('trigger_mode').notNull().default('realtime'), // 'realtime' | 'scheduled'
+  schedule_interval: integer('schedule_interval').default(60), // minutes (for scheduled mode)
+  min_severity: text('min_severity').default('medium'),         // 'low' | 'medium' | 'high' | 'critical'
+  enabled: boolean('enabled').notNull().default(true),
+  last_sent_at: timestamp('last_sent_at', { withTimezone: true }),
+  created_at: timestamp('created_at', { withTimezone: true }).notNull().default(now()),
+  updated_at: timestamp('updated_at', { withTimezone: true }).notNull().default(now()),
+});
+
+export type NotificationChannel = typeof notificationChannels.$inferSelect;
+export type NotificationRule = typeof notificationRules.$inferSelect;
+
 // ── Insert schemas ──────────────────────────────────
 export const insertUserSchema = createInsertSchema(users).omit({ id: true, created_at: true, updated_at: true });
 export const insertFirewallRuleSchema = createInsertSchema(firewallRules).omit({ id: true, created_at: true, updated_at: true });

@@ -46,6 +46,7 @@ import CertificateManagement from "./pages/CertificateManagement";
 import LogReport from "./pages/LogReport";
 import AdminProfiles from "./pages/AdminProfiles";
 import AccountSecurity from "./pages/AccountSecurity";
+import SystemNotifications from "./pages/SystemNotifications";
 import VirtualIPs from "./pages/VirtualIPs";
 import IPPools from "./pages/IPPools";
 import TrafficShapers from "./pages/TrafficShapers";
@@ -153,6 +154,7 @@ const App = () => (
             <Route path="/system/admins" element={<P><AdminProfiles /></P>} />
             <Route path="/account/security" element={<P><AccountSecurity /></P>} />
             <Route path="/system/admin-profiles" element={<Navigate to="/system/admins" replace />} />
+            <Route path="/system/notifications" element={<P><SystemNotifications /></P>} />
             <Route path="/system/ha" element={<P><HighAvailability /></P>} />
             <Route path="/system/certificates" element={<P><CertificateManagement /></P>} />
 
