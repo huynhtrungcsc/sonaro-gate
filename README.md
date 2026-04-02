@@ -113,8 +113,7 @@ sonaro-gate/
 
 ## Documentation
 
-- [Ubuntu Deploy Guide](docs/DEPLOY-UBUNTU.md)
-- [Docker Deploy Guide](docs/DEPLOY-DOCKER.md)
+- [Deploy Guide (Docker + Ubuntu)](docs/DEPLOY.md)
 - [CLI Network Setup](docs/CLI-NETWORK-SETUP.md)
 - [System Architecture](docs/ARCHITECTURE.md)
 - [Admin Handbook](docs/HANDBOOK.md)
