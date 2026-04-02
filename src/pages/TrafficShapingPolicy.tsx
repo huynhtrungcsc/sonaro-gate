@@ -138,7 +138,7 @@ const TrafficShapingPolicy = () => {
             Delete
           </button>
           <div className="forti-toolbar-separator" />
-          <button className="forti-toolbar-btn" onClick={() => toast.success('Data refreshed')}>
+          <button className="forti-toolbar-btn" onClick={() => queryClient.invalidateQueries({ queryKey: ['traffic-shaping-policies'] }).then(() => toast.success('Refreshed'))}>
             <RefreshCw className="w-3 h-3" />
             Refresh
           </button>

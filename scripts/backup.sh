@@ -1,6 +1,6 @@
 #!/bin/sh
 # ============================================
-# Aegis NGFW - Automated Database Backup
+# Sonaro Gate NGFW - Automated Database Backup
 # Runs inside the backup container via cron
 # ============================================
 

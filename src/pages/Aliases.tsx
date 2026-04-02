@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useAliases } from '@/hooks/useDbData';
+import { aliasesApi } from '@/lib/api';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Shell } from '@/components/layout/Shell';
 import { cn } from '@/lib/utils';
 import { Plus, Pencil, Trash2, Search, Network, Server, Hash, ChevronDown, Download, Upload, GripVertical } from 'lucide-react';
@@ -169,7 +171,24 @@ const SortableAliasRow = ({ alias, isSelected, onSelect, getTypeIcon, getTypeCol
 
 const Aliases = () => {
   const { data: dbAliases } = useAliases();
+  const queryClient = useQueryClient();
   const [aliases, setAliases] = useState<Alias[]>([]);
+
+  const createMut = useMutation({
+    mutationFn: (d: any) => aliasesApi.create(d),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['aliases'] }); setModalOpen(false); toast.success('Alias created'); },
+    onError: () => toast.error('Failed to create alias'),
+  });
+  const updateMut = useMutation({
+    mutationFn: ({ id, d }: { id: string; d: any }) => aliasesApi.update(id, d),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['aliases'] }); setModalOpen(false); toast.success('Alias updated'); },
+    onError: () => toast.error('Failed to update alias'),
+  });
+  const deleteMut = useMutation({
+    mutationFn: (id: string) => aliasesApi.delete(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['aliases'] }),
+    onError: () => toast.error('Failed to delete alias'),
+  });
 
   useEffect(() => {
     if (dbAliases) {
@@ -255,7 +274,7 @@ const Aliases = () => {
       setDeleteDialogOpen(false);
       return;
     }
-    setAliases(prev => prev.filter(a => !selectedRows.includes(a.id)));
+    toDelete.forEach(a => deleteMut.mutate(a.id));
     setSelectedRows([]);
     setDeleteDialogOpen(false);
     toast.success(`${toDelete.length} alias(es) deleted`);
@@ -304,28 +323,18 @@ const Aliases = () => {
       .map(v => v.trim())
       .filter(v => v !== '');
 
+    const payload = {
+      name: values.name,
+      type: values.type,
+      values: valuesArray,
+      description: values.description,
+    };
+
     if (editingAlias) {
-      setAliases(prev => prev.map(a => 
-        a.id === editingAlias.id 
-          ? { ...a, name: values.name, type: values.type, values: valuesArray, description: values.description, updated: new Date() }
-          : a
-      ));
-      toast.success('Alias updated');
+      updateMut.mutate({ id: editingAlias.id, d: payload });
     } else {
-      const newAlias: Alias = {
-        id: `alias-${Date.now()}`,
-        name: values.name,
-        type: values.type,
-        values: valuesArray,
-        description: values.description,
-        usageCount: 0,
-        created: new Date(),
-        updated: new Date(),
-      };
-      setAliases(prev => [...prev, newAlias]);
-      toast.success('Alias created');
+      createMut.mutate(payload);
     }
-    setModalOpen(false);
   };
 
   const getTypeIcon = (type: Alias['type']) => {

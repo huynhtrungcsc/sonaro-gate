@@ -2,20 +2,68 @@ import { useState } from 'react';
 import { Shell } from '@/components/layout/Shell';
 import { cn } from '@/lib/utils';
 import { FortiToggle } from '@/components/ui/forti-toggle';
-import { ChevronDown, Plus, Edit2, Trash2, RefreshCw, Search, ArrowRightLeft, Globe, Network } from 'lucide-react';
+import { ChevronDown, Plus, Edit2, Trash2, RefreshCw, Search, ArrowRightLeft, Globe, Network, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { useNATRules } from '@/hooks/useDbData';
 import { natRulesApi } from '@/lib/api';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+
+interface NatFormState {
+  type: string;
+  interface: string;
+  protocol: string;
+  external_address: string;
+  external_port: string;
+  internal_address: string;
+  internal_port: string;
+  description: string;
+  enabled: boolean;
+}
+
+const DEFAULT_NAT_FORM: NatFormState = {
+  type: 'port-forward',
+  interface: 'WAN',
+  protocol: 'tcp',
+  external_address: '',
+  external_port: '',
+  internal_address: '',
+  internal_port: '',
+  description: '',
+  enabled: true,
+};
 
 const NATConfig = () => {
   const [activeTab, setActiveTab] = useState<'port-forward' | 'outbound' | '1:1' | 'npt'>('port-forward');
   const [showCreateMenu, setShowCreateMenu] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editingRule, setEditingRule] = useState<any>(null);
+  const [form, setForm] = useState<NatFormState>(DEFAULT_NAT_FORM);
 
   const queryClient = useQueryClient();
   const { data: rules = [], isLoading } = useNATRules();
+
+  const createMut = useMutation({
+    mutationFn: (d: any) => natRulesApi.create(d),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['nat-rules'] });
+      setModalOpen(false);
+      toast.success('NAT rule created');
+    },
+    onError: () => toast.error('Failed to create rule'),
+  });
+
+  const updateMut = useMutation({
+    mutationFn: ({ id, d }: { id: string; d: any }) => natRulesApi.update(id, d),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['nat-rules'] });
+      setModalOpen(false);
+      toast.success('NAT rule updated');
+    },
+    onError: () => toast.error('Failed to update rule'),
+  });
 
   const toggleMut = useMutation({
     mutationFn: ({ id, enabled }: { id: string; enabled: boolean }) =>
@@ -33,6 +81,43 @@ const NATConfig = () => {
     },
     onError: () => toast.error('Failed to delete rule'),
   });
+
+  const openCreate = (type: string) => {
+    setEditingRule(null);
+    setForm({ ...DEFAULT_NAT_FORM, type });
+    setShowCreateMenu(false);
+    setModalOpen(true);
+  };
+
+  const openEdit = () => {
+    const rule = (rules as any[]).find((r: any) => r.id === selectedIds[0]);
+    if (!rule) return;
+    setEditingRule(rule);
+    setForm({
+      type: rule.type,
+      interface: rule.interface,
+      protocol: rule.protocol,
+      external_address: rule.external_address || '',
+      external_port: rule.external_port,
+      internal_address: rule.internal_address,
+      internal_port: rule.internal_port,
+      description: rule.description,
+      enabled: rule.enabled,
+    });
+    setModalOpen(true);
+  };
+
+  const handleSubmit = () => {
+    if (!form.external_port || !form.internal_address || !form.internal_port) {
+      toast.error('External port, internal address, and internal port are required');
+      return;
+    }
+    if (editingRule) {
+      updateMut.mutate({ id: editingRule.id, d: form });
+    } else {
+      createMut.mutate(form);
+    }
+  };
 
   const tabs = [
     { id: 'port-forward', label: 'Port Forward', count: rules.filter((r: any) => r.type === 'port-forward').length, icon: ArrowRightLeft },
@@ -77,10 +162,7 @@ const NATConfig = () => {
                   <button
                     key={item.type}
                     className="w-full px-3 py-2 text-left text-[11px] hover:bg-[#f0f0f0] flex items-center gap-2"
-                    onClick={() => {
-                      setShowCreateMenu(false);
-                      toast.info(`NAT rule editor not yet implemented`);
-                    }}
+                    onClick={() => openCreate(item.type)}
                   >
                     <item.icon className="w-3 h-3" />
                     {item.label}
@@ -92,7 +174,7 @@ const NATConfig = () => {
           <button
             className="forti-toolbar-btn"
             disabled={selectedIds.length !== 1}
-            onClick={() => toast.info('Rule editor not yet implemented')}
+            onClick={openEdit}
           >
             <Edit2 className="w-3 h-3" />
             Edit
@@ -295,7 +377,7 @@ const NATConfig = () => {
                   <div className="text-[11px] text-[#999] mb-4">
                     {activeTab === '1:1' ? '1:1 NAT maps an external IP to an internal IP' : 'Network Prefix Translation for IPv6'}
                   </div>
-                  <button className="forti-toolbar-btn primary" onClick={() => toast.info('Rule editor not yet implemented')}>
+                  <button className="forti-toolbar-btn primary" onClick={() => openCreate(activeTab)}>
                     <Plus className="w-3 h-3 inline mr-1" />
                     Add {activeTab === '1:1' ? '1:1 NAT' : 'NPt'} Rule
                   </button>
@@ -305,6 +387,144 @@ const NATConfig = () => {
           </div>
         )}
       </div>
+
+      {/* Create / Edit NAT Rule Modal */}
+      <Dialog open={modalOpen} onOpenChange={setModalOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ArrowRightLeft className="w-4 h-4" />
+              {editingRule ? 'Edit NAT Rule' : 'New NAT Rule'}
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4 text-[11px]">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block font-medium mb-1 text-[#555]">Rule Type</label>
+                <select
+                  className="forti-select w-full"
+                  value={form.type}
+                  onChange={e => setForm(f => ({ ...f, type: e.target.value }))}
+                >
+                  <option value="port-forward">Port Forward</option>
+                  <option value="outbound">Outbound NAT</option>
+                  <option value="1:1">1:1 NAT</option>
+                  <option value="npt">NPt (IPv6)</option>
+                </select>
+              </div>
+              <div>
+                <label className="block font-medium mb-1 text-[#555]">Interface</label>
+                <select
+                  className="forti-select w-full"
+                  value={form.interface}
+                  onChange={e => setForm(f => ({ ...f, interface: e.target.value }))}
+                >
+                  {['WAN', 'WAN1', 'WAN2', 'LAN', 'DMZ', 'any'].map(i => (
+                    <option key={i} value={i}>{i}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <label className="block font-medium mb-1 text-[#555]">Protocol</label>
+              <div className="flex gap-2">
+                {['tcp', 'udp', 'tcp/udp'].map(p => (
+                  <button
+                    key={p}
+                    type="button"
+                    onClick={() => setForm(f => ({ ...f, protocol: p }))}
+                    className={cn(
+                      "px-3 py-1.5 rounded border text-[11px] transition-colors",
+                      form.protocol === p
+                        ? "border-[hsl(142,70%,35%)] bg-[hsl(142,70%,35%)]/10 text-[hsl(142,70%,35%)]"
+                        : "border-[#ccc] hover:bg-[#f0f0f0]"
+                    )}
+                  >
+                    {p.toUpperCase()}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block font-medium mb-1 text-[#555]">External Address <span className="text-[#999] font-normal">(optional)</span></label>
+                <input
+                  className="forti-input w-full"
+                  placeholder="any"
+                  value={form.external_address}
+                  onChange={e => setForm(f => ({ ...f, external_address: e.target.value }))}
+                />
+              </div>
+              <div>
+                <label className="block font-medium mb-1 text-[#555]">External Port <span className="text-red-500">*</span></label>
+                <input
+                  className="forti-input w-full"
+                  placeholder="80"
+                  value={form.external_port}
+                  onChange={e => setForm(f => ({ ...f, external_port: e.target.value }))}
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block font-medium mb-1 text-[#555]">Internal Address <span className="text-red-500">*</span></label>
+                <input
+                  className="forti-input w-full"
+                  placeholder="192.168.1.100"
+                  value={form.internal_address}
+                  onChange={e => setForm(f => ({ ...f, internal_address: e.target.value }))}
+                />
+              </div>
+              <div>
+                <label className="block font-medium mb-1 text-[#555]">Internal Port <span className="text-red-500">*</span></label>
+                <input
+                  className="forti-input w-full"
+                  placeholder="80"
+                  value={form.internal_port}
+                  onChange={e => setForm(f => ({ ...f, internal_port: e.target.value }))}
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block font-medium mb-1 text-[#555]">Description</label>
+              <input
+                className="forti-input w-full"
+                placeholder="Optional description..."
+                value={form.description}
+                onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
+              />
+            </div>
+
+            <div className="flex items-center gap-2 pt-1">
+              <input
+                type="checkbox"
+                id="nat-enabled"
+                checked={form.enabled}
+                onChange={e => setForm(f => ({ ...f, enabled: e.target.checked }))}
+              />
+              <label htmlFor="nat-enabled" className="cursor-pointer text-[#555]">Enabled</label>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-4 border-t border-[#e0e0e0]">
+              <button className="forti-toolbar-btn" onClick={() => setModalOpen(false)}>
+                Cancel
+              </button>
+              <button
+                className="forti-toolbar-btn primary"
+                onClick={handleSubmit}
+                disabled={createMut.isPending || updateMut.isPending}
+              >
+                {(createMut.isPending || updateMut.isPending) ? 'Saving…' : 'OK'}
+              </button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </Shell>
   );
 };

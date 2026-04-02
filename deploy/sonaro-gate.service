@@ -1,0 +1,58 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Sonaro Gate • 2025.1 LTS  —  Systemd Service Unit
+# Place at: /etc/systemd/system/sonaro-gate.service
+#
+# Install:  sudo cp deploy/sonaro-gate.service /etc/systemd/system/
+#           sudo systemctl daemon-reload
+#           sudo systemctl enable --now sonaro-gate
+# ─────────────────────────────────────────────────────────────────────────────
+
+[Unit]
+Description=Sonaro Gate • 2025.1 LTS — Next-Generation Firewall Management Console
+Documentation=https://github.com/huynhtrungcsc/sonaro-gate
+After=network-online.target postgresql.service
+Wants=network-online.target
+Requires=postgresql.service
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/sonaro
+
+# Run as root — required for iptables, ip addr, sysctl, netplan
+User=root
+Group=root
+
+# Load environment from .env file
+EnvironmentFile=/opt/sonaro/.env
+
+# Start command (tsx for ts-based production; swap for compiled JS if preferred)
+ExecStart=/usr/bin/npx tsx server/index.ts
+
+# Apply saved iptables rules on restart (in case kernel flushed them)
+ExecStartPre=/bin/sh -c 'test -f /etc/iptables/rules.v4 && iptables-restore < /etc/iptables/rules.v4 || true'
+
+# Graceful shutdown — allow 10 s for Express to drain connections
+ExecStop=/bin/kill -SIGTERM $MAINPID
+TimeoutStopSec=10
+
+# Restart automatically on crash (not on clean stop/setup-wizard completion)
+Restart=on-failure
+RestartSec=5
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=sonaro-gate
+
+# ── Security hardening (compatible with network operations) ──────────────────
+# Note: many sandboxing options are DISABLED because iptables/ip/sysctl
+# need broad kernel access. Do not add PrivateTmp or NoNewPrivileges here.
+ProtectHome=read-only
+ReadWritePaths=/etc/netplan /etc/sysctl.d /etc/iptables /opt/sonaro
+
+# Allow kernel networking capabilities
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW CAP_SYS_ADMIN
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW CAP_SYS_ADMIN
+
+[Install]
+WantedBy=multi-user.target

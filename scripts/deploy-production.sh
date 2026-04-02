@@ -1,6 +1,6 @@
 #!/bin/bash
 # ============================================
-# Aegis NGFW - Production Deploy Script
+# Sonaro Gate - Production Deploy Script
 # Ubuntu 24.04 LTS
 # ============================================
 set -euo pipefail
@@ -88,11 +88,11 @@ check_service() {
   fi
 }
 
-check_service "Database"  "aegis-db"
-check_service "API"       "aegis-api"
-check_service "Frontend"  "aegis-frontend"
-check_service "Certbot"   "aegis-certbot"
-check_service "Backup"    "aegis-backup"
+check_service "Database"  "sonaro-db"
+check_service "API"       "sonaro-api"
+check_service "Frontend"  "sonaro-frontend"
+check_service "Certbot"   "sonaro-certbot"
+check_service "Backup"    "sonaro-backup"
 
 # Test HTTP->HTTPS redirect
 HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "http://${DOMAIN}/health" 2>/dev/null || echo "000")
@@ -103,8 +103,8 @@ log "HTTPS status: ${HTTPS_STATUS} (should be 200)"
 
 echo ""
 log "============================================"
-log "  Aegis NGFW Production Deployment Complete"
+log "  Sonaro Gate Production Deployment Complete"
 log "  URL: https://${DOMAIN}"
-log "  Default login: admin@aegis.local / Admin123!"
+log "  Default login: admin@sonaro.local / Admin123!"
 log "  CHANGE DEFAULT PASSWORD IMMEDIATELY!"
 log "============================================"

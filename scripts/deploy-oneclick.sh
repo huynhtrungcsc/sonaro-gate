@@ -1,6 +1,6 @@
 #!/bin/bash
 # ============================================================
-# Aegis NGFW — One-Click Deploy Script for Ubuntu 24.04 LTS
+# Sonaro Gate — One-Click Deploy Script for Ubuntu 24.04 LTS
 # Version: 2.0 — Includes ClamAV, Squid, Suricata, VPN
 # ============================================================
 # Usage:
@@ -60,7 +60,7 @@ done
 # ── Banner ─────────────────────────────────────
 echo -e "${CYAN}"
 echo "  ╔═══════════════════════════════════════════════════════╗"
-echo "  ║   Aegis NGFW — One-Click Deploy for Ubuntu 24.04     ║"
+echo "  ║   Sonaro Gate — One-Click Deploy for Ubuntu 24.04     ║"
 echo "  ║   100% Self-Hosted • No Cloud Required               ║"
 echo "  ╚═══════════════════════════════════════════════════════╝"
 echo -e "${NC}"
@@ -91,7 +91,7 @@ cd "$INSTALL_DIR"
 if [[ "$UPDATE_MODE" == "true" ]]; then
   echo -e "${CYAN}"
   echo "  ╔═══════════════════════════════════════════════════════╗"
-  echo "  ║   Aegis NGFW — Update Mode                           ║"
+  echo "  ║   Sonaro Gate — Update Mode                           ║"
   echo "  ║   Updating code & containers, keeping data & config  ║"
   echo "  ╚═══════════════════════════════════════════════════════╝"
   echo -e "${NC}"
@@ -121,11 +121,11 @@ if [[ "$UPDATE_MODE" == "true" ]]; then
   if [[ -f ".env.production" ]]; then
     COMPOSE_FILE="docker-compose.production.yml"
     ENV_FILE=".env.production"
-    docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" build --no-cache aegis-frontend 2>&1 | tail -3
-    docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d aegis-frontend
+    docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" build --no-cache sonaro-frontend 2>&1 | tail -3
+    docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d sonaro-frontend
   else
-    docker compose build --no-cache aegis-frontend 2>&1 | tail -3
-    docker compose up -d aegis-frontend
+    docker compose build --no-cache sonaro-frontend 2>&1 | tail -3
+    docker compose up -d sonaro-frontend
   fi
   ok "Frontend rebuilt and restarted"
 
@@ -133,7 +133,7 @@ if [[ "$UPDATE_MODE" == "true" ]]; then
   unext "Checking for database migrations..."
   if [[ -f "docker/init.sql" ]]; then
     # Apply any new tables/functions that don't exist yet (idempotent)
-    docker exec -i aegis-db psql -U aegis -d aegis_ngfw < docker/init.sql 2>/dev/null || true
+    docker exec -i sonaro-db psql -U sonaro -d sonaro_gate < docker/init.sql 2>/dev/null || true
     ok "Database schema updated (idempotent)"
   else
     ok "No migration files found"
@@ -142,18 +142,18 @@ if [[ "$UPDATE_MODE" == "true" ]]; then
   # Step 4: Restart API to pick up schema changes
   unext "Restarting API service..."
   if [[ -f ".env.production" ]]; then
-    docker compose -f docker-compose.production.yml --env-file .env.production restart aegis-api
+    docker compose -f docker-compose.production.yml --env-file .env.production restart sonaro-api
   else
-    docker compose restart aegis-api
+    docker compose restart sonaro-api
   fi
   ok "API restarted"
 
   # Step 5: Update agent on host
-  unext "Updating Aegis Agent..."
-  if [[ -f "/opt/aegis/aegis-agent.sh" ]] && [[ -f "scripts/aegis-agent.sh" ]]; then
-    cp scripts/aegis-agent.sh /opt/aegis/aegis-agent.sh
-    chmod +x /opt/aegis/aegis-agent.sh
-    systemctl restart aegis-agent 2>/dev/null || true
+  unext "Updating Sonaro Gate Agent..."
+  if [[ -f "/opt/sonaro/sonaro-agent.sh" ]] && [[ -f "scripts/sonaro-agent.sh" ]]; then
+    cp scripts/sonaro-agent.sh /opt/sonaro/sonaro-agent.sh
+    chmod +x /opt/sonaro/sonaro-agent.sh
+    systemctl restart sonaro-agent 2>/dev/null || true
     ok "Agent script updated and restarted"
   else
     warn "Agent not installed or script not found. Skipping."
@@ -175,20 +175,20 @@ if [[ "$UPDATE_MODE" == "true" ]]; then
     fi
   }
 
-  run_test "Container: aegis-db running" \
-    "docker ps --filter name=aegis-db --filter status=running -q | grep -q ."
-  run_test "Container: aegis-api running" \
-    "docker ps --filter name=aegis-api --filter status=running -q | grep -q ."
-  run_test "Container: aegis-frontend running" \
-    "docker ps --filter name=aegis-frontend --filter status=running -q | grep -q ."
+  run_test "Container: sonaro-db running" \
+    "docker ps --filter name=sonaro-db --filter status=running -q | grep -q ."
+  run_test "Container: sonaro-api running" \
+    "docker ps --filter name=sonaro-api --filter status=running -q | grep -q ."
+  run_test "Container: sonaro-frontend running" \
+    "docker ps --filter name=sonaro-frontend --filter status=running -q | grep -q ."
   run_test "Database: PostgreSQL accepts connections" \
-    "docker exec aegis-db pg_isready -U aegis -d aegis_ngfw"
+    "docker exec sonaro-db pg_isready -U sonaro -d sonaro_gate"
 
   BASE_URL="http://localhost:8080"
   [[ -f ".env.production" ]] && BASE_URL="http://localhost:80"
 
   run_test "Frontend: serves HTML" \
-    "curl -sf ${BASE_URL}/ | grep -qi 'aegis\\|html'"
+    "curl -sf ${BASE_URL}/ | grep -qi 'sonaro\\|html'"
   run_test "Frontend: /health endpoint" \
     "curl -sf ${BASE_URL}/health >/dev/null 2>&1"
   run_test "Frontend: API proxy works" \
@@ -205,7 +205,7 @@ if [[ "$UPDATE_MODE" == "true" ]]; then
 
   echo ""
   echo -e "${GREEN}═══════════════════════════════════════════════════════${NC}"
-  echo -e "${GREEN}   Aegis NGFW — Update Complete!${NC}"
+  echo -e "${GREEN}   Sonaro Gate — Update Complete!${NC}"
   echo -e "${GREEN}═══════════════════════════════════════════════════════${NC}"
   echo ""
   echo -e "  ${BOLD}What was updated:${NC}"
@@ -218,7 +218,7 @@ if [[ "$UPDATE_MODE" == "true" ]]; then
   echo -e "    ✓ All database data (firewall rules, logs, etc.)"
   echo -e "    ✓ Environment config (.env / credentials)"
   echo -e "    ✓ Docker volumes (pgdata)"
-  echo -e "    ✓ Agent configuration (/opt/aegis/.env)"
+  echo -e "    ✓ Agent configuration (/opt/sonaro/.env)"
   echo ""
   if [[ $TESTS_FAILED -gt 0 ]]; then
     echo -e "  ${YELLOW}⚠ ${TESTS_FAILED} test(s) failed. Check above for details.${NC}"
@@ -306,11 +306,11 @@ if [[ "$DEV_MODE" == "true" ]]; then
 
   cat > "$ENV_FILE" <<EOF
 # ============================================
-# Aegis NGFW — Dev Environment
+# Sonaro Gate — Dev Environment
 # Generated: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
 # ============================================
-POSTGRES_DB=aegis_ngfw
-POSTGRES_USER=aegis
+POSTGRES_DB=sonaro_gate
+POSTGRES_USER=sonaro
 POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
 JWT_SECRET=${JWT_SECRET}
 DB_PORT=5432
@@ -348,13 +348,13 @@ else
 
   cat > "$ENV_FILE" <<EOF
 # ============================================
-# Aegis NGFW — Production Environment
+# Sonaro Gate — Production Environment
 # Generated: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
 # ============================================
 DOMAIN=${DOMAIN}
 CERTBOT_EMAIL=${CERTBOT_EMAIL}
-POSTGRES_DB=aegis_ngfw
-POSTGRES_USER=aegis
+POSTGRES_DB=sonaro_gate
+POSTGRES_USER=sonaro
 POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
 JWT_SECRET=${JWT_SECRET}
 BACKUP_RETENTION_DAYS=30
@@ -394,7 +394,7 @@ next_step "Waiting for services to become healthy..."
 # Wait for PostgreSQL
 echo -n "  Waiting for database"
 for i in $(seq 1 30); do
-  if docker exec aegis-db pg_isready -U aegis -d aegis_ngfw &>/dev/null; then
+  if docker exec sonaro-db pg_isready -U sonaro -d sonaro_gate &>/dev/null; then
     echo ""
     ok "Database is ready"
     break
@@ -404,8 +404,8 @@ for i in $(seq 1 30); do
   if [[ $i -eq 30 ]]; then
     echo ""
     fail "Database failed to start after 60s"
-    docker logs aegis-db --tail 20
-    err "Database startup failed. Check logs: docker logs aegis-db"
+    docker logs sonaro-db --tail 20
+    err "Database startup failed. Check logs: docker logs sonaro-db"
   fi
 done
 
@@ -415,9 +415,9 @@ for i in $(seq 1 20); do
   if [[ "$DEV_MODE" == "true" ]]; then
     STATUS=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:3000/" 2>/dev/null || echo "000")
   else
-    STATUS=$(docker exec aegis-api wget -qO- http://localhost:3000/ 2>/dev/null && echo "200" || echo "000")
+    STATUS=$(docker exec sonaro-api wget -qO- http://localhost:3000/ 2>/dev/null && echo "200" || echo "000")
   fi
-  if [[ "$STATUS" == "200" ]] || docker exec aegis-api wget -qS --spider http://localhost:3000/ 2>&1 | grep -q "200"; then
+  if [[ "$STATUS" == "200" ]] || docker exec sonaro-api wget -qS --spider http://localhost:3000/ 2>&1 | grep -q "200"; then
     echo ""
     ok "PostgREST API is ready"
     break
@@ -454,7 +454,7 @@ done
 # ════════════════════════════════════════════════
 #  STEP 6: Install Agent on Host
 # ════════════════════════════════════════════════
-next_step "Installing Aegis Agent on host..."
+next_step "Installing Sonaro Gate Agent on host..."
 
 if [[ "$SKIP_AGENT" == "true" ]]; then
   warn "Agent installation skipped (--skip-agent)"
@@ -474,8 +474,8 @@ else
     ok "Agent installed"
 
     # Start agent service
-    systemctl enable aegis-agent 2>/dev/null || true
-    systemctl start aegis-agent 2>/dev/null || true
+    systemctl enable sonaro-agent 2>/dev/null || true
+    systemctl start sonaro-agent 2>/dev/null || true
     ok "Agent service started"
   else
     warn "Agent script not found at scripts/install-agent.sh. Skipping."
@@ -513,40 +513,40 @@ else
 fi
 
 # Test 1: Docker containers running
-run_test "Container: aegis-db running" \
-  "docker ps --filter name=aegis-db --filter status=running -q | grep -q ."
+run_test "Container: sonaro-db running" \
+  "docker ps --filter name=sonaro-db --filter status=running -q | grep -q ."
 
-run_test "Container: aegis-api running" \
-  "docker ps --filter name=aegis-api --filter status=running -q | grep -q ."
+run_test "Container: sonaro-api running" \
+  "docker ps --filter name=sonaro-api --filter status=running -q | grep -q ."
 
-run_test "Container: aegis-frontend running" \
-  "docker ps --filter name=aegis-frontend --filter status=running -q | grep -q ."
+run_test "Container: sonaro-frontend running" \
+  "docker ps --filter name=sonaro-frontend --filter status=running -q | grep -q ."
 
 # Test 2: Database connectivity
 run_test "Database: PostgreSQL accepts connections" \
-  "docker exec aegis-db pg_isready -U aegis -d aegis_ngfw"
+  "docker exec sonaro-db pg_isready -U sonaro -d sonaro_gate"
 
 # Test 3: Database tables exist
 run_test "Database: firewall_rules table exists" \
-  "docker exec aegis-db psql -U aegis -d aegis_ngfw -c 'SELECT 1 FROM firewall_rules LIMIT 1'"
+  "docker exec sonaro-db psql -U sonaro -d sonaro_gate -c 'SELECT 1 FROM firewall_rules LIMIT 1'"
 
 run_test "Database: network_interfaces table exists" \
-  "docker exec aegis-db psql -U aegis -d aegis_ngfw -c 'SELECT 1 FROM network_interfaces LIMIT 1'"
+  "docker exec sonaro-db psql -U sonaro -d sonaro_gate -c 'SELECT 1 FROM network_interfaces LIMIT 1'"
 
 run_test "Database: threat_events table exists" \
-  "docker exec aegis-db psql -U aegis -d aegis_ngfw -c 'SELECT 1 FROM threat_events LIMIT 1'"
+  "docker exec sonaro-db psql -U sonaro -d sonaro_gate -c 'SELECT 1 FROM threat_events LIMIT 1'"
 
 run_test "Database: firmware_info table exists" \
-  "docker exec aegis-db psql -U aegis -d aegis_ngfw -c 'SELECT 1 FROM firmware_info LIMIT 1'"
+  "docker exec sonaro-db psql -U sonaro -d sonaro_gate -c 'SELECT 1 FROM firmware_info LIMIT 1'"
 
 run_test "Database: config_backups table exists" \
-  "docker exec aegis-db psql -U aegis -d aegis_ngfw -c 'SELECT 1 FROM config_backups LIMIT 1'"
+  "docker exec sonaro-db psql -U sonaro -d sonaro_gate -c 'SELECT 1 FROM config_backups LIMIT 1'"
 
 run_test "Database: packet_captures table exists" \
-  "docker exec aegis-db psql -U aegis -d aegis_ngfw -c 'SELECT 1 FROM packet_captures LIMIT 1'"
+  "docker exec sonaro-db psql -U sonaro -d sonaro_gate -c 'SELECT 1 FROM packet_captures LIMIT 1'"
 
 run_test "Database: network_devices table exists" \
-  "docker exec aegis-db psql -U aegis -d aegis_ngfw -c 'SELECT 1 FROM network_devices LIMIT 1'"
+  "docker exec sonaro-db psql -U sonaro -d sonaro_gate -c 'SELECT 1 FROM network_devices LIMIT 1'"
 
 # Test 4: API endpoints
 run_test "API: PostgREST root responds" \
@@ -563,7 +563,7 @@ run_test "API: /system_metrics endpoint" \
 
 # Test 5: Frontend serves pages
 run_test "Frontend: serves HTML" \
-  "curl -sf ${BASE_URL}/ | grep -qi 'aegis\\|html'"
+  "curl -sf ${BASE_URL}/ | grep -qi 'sonaro\\|html'"
 
 run_test "Frontend: /health endpoint" \
   "curl -sf ${BASE_URL}/health >/dev/null 2>&1 || curl -sf -o /dev/null -w '%{http_code}' ${BASE_URL}/health | grep -q '200'"
@@ -577,15 +577,15 @@ run_test "API: /rpc/authenticate exists" \
   "curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d '{\"p_email\":\"test\",\"p_password\":\"test\"}' http://localhost:3000/rpc/authenticate 2>/dev/null | grep -qE '(200|400|404)'"
 
 # Test 8: Agent
-if [[ "$SKIP_AGENT" == "false" ]] && [[ -f "/opt/aegis/aegis-agent.sh" ]]; then
-  run_test "Agent: script exists at /opt/aegis/" \
-    "test -x /opt/aegis/aegis-agent.sh"
+if [[ "$SKIP_AGENT" == "false" ]] && [[ -f "/opt/sonaro/sonaro-agent.sh" ]]; then
+  run_test "Agent: script exists at /opt/sonaro/" \
+    "test -x /opt/sonaro/sonaro-agent.sh"
 
-  run_test "Agent: config exists at /opt/aegis/.env" \
-    "test -f /opt/aegis/.env"
+  run_test "Agent: config exists at /opt/sonaro/.env" \
+    "test -f /opt/sonaro/.env"
 
   run_test "Agent: systemd service loaded" \
-    "systemctl is-enabled aegis-agent 2>/dev/null | grep -qE '(enabled|disabled)'"
+    "systemctl is-enabled sonaro-agent 2>/dev/null | grep -qE '(enabled|disabled)'"
 fi
 
 # Test 9: Disk & memory sanity
@@ -616,7 +616,7 @@ next_step "Deployment complete!"
 
 echo ""
 echo -e "${GREEN}═══════════════════════════════════════════════════════${NC}"
-echo -e "${GREEN}   Aegis NGFW — Deployment Successful!${NC}"
+echo -e "${GREEN}   Sonaro Gate — Deployment Successful!${NC}"
 echo -e "${GREEN}═══════════════════════════════════════════════════════${NC}"
 echo ""
 
@@ -632,7 +632,7 @@ fi
 
 echo ""
 echo -e "  ${BOLD}Default Login:${NC}"
-echo -e "    Email:    ${CYAN}admin@aegis.local${NC}"
+echo -e "    Email:    ${CYAN}admin@sonaro.local${NC}"
 echo -e "    Password: ${CYAN}Admin123!${NC}"
 echo -e "    ${RED}⚠ CHANGE THIS IMMEDIATELY after first login!${NC}"
 echo ""
@@ -645,10 +645,10 @@ echo -e "    View logs:     ${CYAN}docker compose logs -f${NC}"
 echo -e "    Stop:          ${CYAN}docker compose down${NC}"
 echo -e "    Restart:       ${CYAN}docker compose restart${NC}"
 echo -e "    ${BOLD}Update:        ${CYAN}sudo bash scripts/deploy-oneclick.sh --update${NC}"
-echo -e "    Agent logs:    ${CYAN}tail -f /opt/aegis/agent.log${NC}"
-echo -e "    Agent status:  ${CYAN}systemctl status aegis-agent${NC}"
-echo -e "    Agent test:    ${CYAN}/opt/aegis/aegis-agent.sh test${NC}"
-echo -e "    Apply AV:      ${CYAN}/opt/aegis/aegis-agent.sh apply-av${NC}"
+echo -e "    Agent logs:    ${CYAN}tail -f /opt/sonaro/agent.log${NC}"
+echo -e "    Agent status:  ${CYAN}systemctl status sonaro-agent${NC}"
+echo -e "    Agent test:    ${CYAN}/opt/sonaro/sonaro-agent.sh test${NC}"
+echo -e "    Apply AV:      ${CYAN}/opt/sonaro/sonaro-agent.sh apply-av${NC}"
 echo ""
 
 if [[ $TESTS_FAILED -gt 0 ]]; then

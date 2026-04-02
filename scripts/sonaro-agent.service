@@ -1,0 +1,27 @@
+[Unit]
+Description=Sonaro Gate Agent v1.0 - System Monitor & Firewall Sync
+Documentation=https://github.com/huynhtrungcsc/sonaro-gate
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/opt/sonaro
+EnvironmentFile=/opt/sonaro/.env
+ExecStart=/opt/sonaro/sonaro-agent.sh daemon
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=always
+RestartSec=10
+StandardOutput=append:/opt/sonaro/sonaro-agent.log
+StandardError=append:/opt/sonaro/sonaro-agent.log
+TimeoutStopSec=15
+
+# Security hardening (relaxed — agent needs access to /proc, /sys, docker)
+# ProtectSystem=strict causes NAMESPACE errors on many systems
+ProtectSystem=false
+NoNewPrivileges=false
+
+[Install]
+WantedBy=multi-user.target
