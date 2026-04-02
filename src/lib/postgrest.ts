@@ -337,6 +337,15 @@ export const mfaApi = {
     if (error) return { success: false, error: error.message };
     return { success: true };
   },
+
+  async changePassword(current_password: string, new_password: string): Promise<{ success: boolean; error?: string }> {
+    const { error } = await request<any>('/auth/change-password', {
+      method: 'POST',
+      body: JSON.stringify({ current_password, new_password }),
+    });
+    if (error) return { success: false, error: error.message };
+    return { success: true };
+  },
 };
 
 // ─── Database Client ────────────────────────────

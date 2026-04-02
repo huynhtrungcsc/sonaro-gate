@@ -8,7 +8,7 @@ import { useState, useEffect } from 'react';
 import { Shell } from '@/components/layout/Shell';
 import { mfaApi } from '@/lib/postgrest';
 import { useAuth } from '@/contexts/AuthContext';
-import { ShieldCheck, ShieldOff, Smartphone, Copy, Eye, EyeOff, CheckCircle2, AlertCircle, Lock } from 'lucide-react';
+import { ShieldCheck, ShieldOff, Smartphone, Copy, Eye, EyeOff, CheckCircle2, AlertCircle, Lock, KeyRound } from 'lucide-react';
 import { toast } from 'sonner';
 
 type MfaView = 'status' | 'setup-qr' | 'setup-verify' | 'disable';
@@ -44,6 +44,17 @@ export default function AccountSecurity() {
   const [disableFocus, setDisableFocus]   = useState(false);
   const [showDisablePass, setShowDisablePass] = useState(false);
   const [disableLoading, setDisableLoading] = useState(false);
+
+  // ── Change Password state ────────────────────────
+  const [cpCurrent, setCpCurrent]         = useState('');
+  const [cpNew, setCpNew]                 = useState('');
+  const [cpConfirm, setCpConfirm]         = useState('');
+  const [cpLoading, setCpLoading]         = useState(false);
+  const [showCpCurrent, setShowCpCurrent] = useState(false);
+  const [showCpNew, setShowCpNew]         = useState(false);
+  const [showCpConfirm, setShowCpConfirm] = useState(false);
+  const [cpFocus, setCpFocus]             = useState<Record<string, boolean>>({});
+  const setFocus = (k: string, v: boolean) => setCpFocus(f => ({ ...f, [k]: v }));
 
   const isMock = !session?.token || session.token === 'mock-jwt-token';
 
@@ -102,6 +113,23 @@ export default function AccountSecurity() {
 
   const copySecret = () => {
     if (qrData) { navigator.clipboard.writeText(qrData.secret); toast.success('Secret copied to clipboard.'); }
+  };
+
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (isMock) { toast.error('Requires a real database connection.'); return; }
+    if (cpNew.length < 8) { toast.error('New password must be at least 8 characters.'); return; }
+    if (cpNew !== cpConfirm) { toast.error('New passwords do not match.'); return; }
+    if (cpNew === cpCurrent) { toast.error('New password must differ from the current password.'); return; }
+    setCpLoading(true);
+    const result = await mfaApi.changePassword(cpCurrent, cpNew);
+    setCpLoading(false);
+    if (!result.success) {
+      toast.error(result.error || 'Failed to change password.');
+      return;
+    }
+    toast.success('Password changed successfully. Please log in again with your new password.');
+    setCpCurrent(''); setCpNew(''); setCpConfirm('');
   };
 
   const inputStyle = (focus: boolean): React.CSSProperties => ({
@@ -351,6 +379,153 @@ export default function AccountSecurity() {
             </form>
           </div>
         )}
+
+        {/* ── Change Password ──────────────────────────────── */}
+        <div style={{ marginTop: 28, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, overflow: 'hidden' }}>
+          <div style={{ padding: '16px 24px', borderBottom: `1px solid ${C.border}`, background: C.surfaceHdr, display: 'flex', alignItems: 'center', gap: 10 }}>
+            <KeyRound style={{ width: 15, height: 15, color: C.textSub }} />
+            <div>
+              <p style={{ fontSize: 13, fontWeight: 700, color: C.textPrimary, margin: 0 }}>Change Password</p>
+              <p style={{ fontSize: 11, color: C.textSub, margin: '3px 0 0' }}>
+                Update your account password. You will remain logged in after changing it.
+              </p>
+            </div>
+          </div>
+
+          <form onSubmit={handleChangePassword} style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: 18 }}>
+            {isMock && (
+              <div style={{ background: '#1c2030', border: '1px solid #334155', borderRadius: 8, padding: '10px 14px', display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                <AlertCircle style={{ width: 13, height: 13, color: '#f59e0b', flexShrink: 0, marginTop: 1 }} />
+                <p style={{ fontSize: 11, color: '#94a3b8', margin: 0 }}>
+                  Running in demo mode. Password change requires a real database connection.
+                </p>
+              </div>
+            )}
+
+            {/* Current password */}
+            <div>
+              <label style={{ display: 'block', fontSize: 10, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', color: C.textSub, marginBottom: 7 }}>
+                Current Password
+              </label>
+              <div style={{ position: 'relative' }}>
+                <Lock style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', width: 14, height: 14, color: C.textMuted, pointerEvents: 'none' }} />
+                <input
+                  data-testid="input-cp-current"
+                  type={showCpCurrent ? 'text' : 'password'}
+                  value={cpCurrent}
+                  onChange={e => setCpCurrent(e.target.value)}
+                  onFocus={() => setFocus('current', true)}
+                  onBlur={() => setFocus('current', false)}
+                  placeholder="Enter current password"
+                  autoComplete="current-password"
+                  style={{ ...inputStyle(cpFocus.current), paddingRight: 40 }}
+                  disabled={isMock}
+                />
+                <button type="button" onClick={() => setShowCpCurrent(v => !v)} tabIndex={-1}
+                  style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: C.textMuted, padding: 0 }}>
+                  {showCpCurrent ? <EyeOff style={{ width: 14, height: 14 }} /> : <Eye style={{ width: 14, height: 14 }} />}
+                </button>
+              </div>
+            </div>
+
+            {/* New password */}
+            <div>
+              <label style={{ display: 'block', fontSize: 10, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', color: C.textSub, marginBottom: 7 }}>
+                New Password
+              </label>
+              <div style={{ position: 'relative' }}>
+                <Lock style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', width: 14, height: 14, color: C.textMuted, pointerEvents: 'none' }} />
+                <input
+                  data-testid="input-cp-new"
+                  type={showCpNew ? 'text' : 'password'}
+                  value={cpNew}
+                  onChange={e => setCpNew(e.target.value)}
+                  onFocus={() => setFocus('new', true)}
+                  onBlur={() => setFocus('new', false)}
+                  placeholder="Minimum 8 characters"
+                  autoComplete="new-password"
+                  style={{ ...inputStyle(cpFocus.new), paddingRight: 40 }}
+                  disabled={isMock}
+                />
+                <button type="button" onClick={() => setShowCpNew(v => !v)} tabIndex={-1}
+                  style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: C.textMuted, padding: 0 }}>
+                  {showCpNew ? <EyeOff style={{ width: 14, height: 14 }} /> : <Eye style={{ width: 14, height: 14 }} />}
+                </button>
+              </div>
+              {/* Strength indicator */}
+              {cpNew.length > 0 && (
+                <div style={{ marginTop: 8 }}>
+                  <div style={{ display: 'flex', gap: 4, marginBottom: 4 }}>
+                    {[8, 12, 16].map((threshold, i) => (
+                      <div key={i} style={{ flex: 1, height: 3, borderRadius: 2, background: cpNew.length >= threshold ? (i === 0 ? '#f59e0b' : i === 1 ? '#3b82f6' : C.greenAccent) : C.border, transition: 'background 0.2s' }} />
+                    ))}
+                  </div>
+                  <span style={{ fontSize: 10, color: cpNew.length < 8 ? '#f59e0b' : cpNew.length < 12 ? '#3b82f6' : C.greenAccent }}>
+                    {cpNew.length < 8 ? 'Too short' : cpNew.length < 12 ? 'Fair' : 'Strong'}
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {/* Confirm new password */}
+            <div>
+              <label style={{ display: 'block', fontSize: 10, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', color: C.textSub, marginBottom: 7 }}>
+                Confirm New Password
+              </label>
+              <div style={{ position: 'relative' }}>
+                <Lock style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', width: 14, height: 14, color: C.textMuted, pointerEvents: 'none' }} />
+                <input
+                  data-testid="input-cp-confirm"
+                  type={showCpConfirm ? 'text' : 'password'}
+                  value={cpConfirm}
+                  onChange={e => setCpConfirm(e.target.value)}
+                  onFocus={() => setFocus('confirm', true)}
+                  onBlur={() => setFocus('confirm', false)}
+                  placeholder="Repeat new password"
+                  autoComplete="new-password"
+                  style={{
+                    ...inputStyle(cpFocus.confirm),
+                    paddingRight: 40,
+                    borderColor: cpConfirm && cpConfirm !== cpNew ? '#b91c1c' : cpFocus.confirm ? C.borderFocus : C.border,
+                  }}
+                  disabled={isMock}
+                />
+                <button type="button" onClick={() => setShowCpConfirm(v => !v)} tabIndex={-1}
+                  style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: C.textMuted, padding: 0 }}>
+                  {showCpConfirm ? <EyeOff style={{ width: 14, height: 14 }} /> : <Eye style={{ width: 14, height: 14 }} />}
+                </button>
+              </div>
+              {cpConfirm && cpConfirm !== cpNew && (
+                <p style={{ fontSize: 10, color: '#f87171', marginTop: 5 }}>Passwords do not match</p>
+              )}
+              {cpConfirm && cpConfirm === cpNew && cpNew.length >= 8 && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 5 }}>
+                  <CheckCircle2 style={{ width: 11, height: 11, color: C.greenAccent }} />
+                  <span style={{ fontSize: 10, color: C.greenAccent }}>Passwords match</span>
+                </div>
+              )}
+            </div>
+
+            <div style={{ paddingTop: 4 }}>
+              <button
+                data-testid="button-change-password-submit"
+                type="submit"
+                disabled={isMock || cpLoading || !cpCurrent || cpNew.length < 8 || cpNew !== cpConfirm}
+                style={{
+                  padding: '10px 20px', fontSize: 12, fontWeight: 700,
+                  color: '#fff', background: C.green, border: `1px solid ${C.green}`, borderRadius: 5,
+                  cursor: (isMock || cpLoading || !cpCurrent || cpNew.length < 8 || cpNew !== cpConfirm) ? 'not-allowed' : 'pointer',
+                  opacity: (isMock || cpLoading || !cpCurrent || cpNew.length < 8 || cpNew !== cpConfirm) ? 0.6 : 1,
+                  display: 'flex', alignItems: 'center', gap: 7,
+                }}
+              >
+                <KeyRound style={{ width: 13, height: 13 }} />
+                {cpLoading ? 'Changing Password…' : 'Change Password'}
+              </button>
+            </div>
+          </form>
+        </div>
+
       </div>
     </Shell>
   );

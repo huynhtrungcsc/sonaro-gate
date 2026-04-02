@@ -227,6 +227,34 @@ async function startWebServer() {
     }
   });
 
+  // ── Change password ────────────────────────────────
+  app.post('/api/auth/change-password', requireAuth, async (req, res) => {
+    const userId = (req as any).user.sub;
+    const { current_password, new_password } = req.body;
+    if (!current_password || !new_password) {
+      return res.status(400).json({ message: 'current_password and new_password are required' });
+    }
+    if (new_password.length < 8) {
+      return res.status(400).json({ message: 'New password must be at least 8 characters' });
+    }
+    if (new_password === current_password) {
+      return res.status(400).json({ message: 'New password must be different from the current password' });
+    }
+    try {
+      const [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+      if (!user) return res.status(404).json({ message: 'User not found' });
+      if (!checkPassword(current_password, user.password_hash)) {
+        return res.status(401).json({ message: 'Current password is incorrect' });
+      }
+      const { hashPassword } = await import('./auth.js');
+      await db.update(users).set({ password_hash: hashPassword(new_password), updated_at: new Date() }).where(eq(users.id, userId));
+      res.json({ success: true });
+    } catch (err: any) {
+      console.error('[Auth] Change password error:', err.message);
+      res.status(500).json({ message: 'Internal server error' });
+    }
+  });
+
   // ─────────────────────────────────────────────────
   // Notifications (Telegram / Discord)
   // ─────────────────────────────────────────────────

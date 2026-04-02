@@ -9,6 +9,7 @@ import {
   Key,
   ChevronRight,
   Settings,
+  ShieldCheck,
   Terminal,
   Maximize,
   Minimize,
@@ -346,6 +347,14 @@ export function Header() {
                     className="flex items-center gap-2.5 px-3 py-2 text-[11px] text-[#222] hover:bg-[#f0f6f1] border-b border-[#ebebeb] transition-colors"
                   >
                     <Key size={12} className="text-[#555] shrink-0" />
+                    Change Password
+                  </Link>
+                  <Link
+                    to="/account/security"
+                    onClick={() => setUserMenuOpen(false)}
+                    className="flex items-center gap-2.5 px-3 py-2 text-[11px] text-[#222] hover:bg-[#f0f6f1] border-b border-[#ebebeb] transition-colors"
+                  >
+                    <ShieldCheck size={12} className="text-[#555] shrink-0" />
                     Account Security / MFA
                   </Link>
                   <div className="h-px bg-[#e0e0e0]" />
