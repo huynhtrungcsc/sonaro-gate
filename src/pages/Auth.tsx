@@ -8,7 +8,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
-import { Eye, EyeOff, ShieldCheck, Lock, Mail, AlertCircle, CheckCircle2, MonitorDot, BadgeCheck } from 'lucide-react';
+import { Eye, EyeOff, ShieldCheck, Lock, Mail, AlertCircle, CheckCircle2, MonitorDot } from 'lucide-react';
 import { toast } from 'sonner';
 import { z } from 'zod';
 
@@ -115,18 +115,9 @@ export default function Auth() {
               </span>
             </div>
 
-            {/* Secure Access Portal badge */}
-            <div style={{
-              marginTop: 10, display: 'flex', alignItems: 'center', gap: 5,
-              padding: '3px 10px', borderRadius: 3,
-              border: `1px solid ${C.border}`,
-              background: C.surfaceHdr,
-            }}>
-              <BadgeCheck style={{ width: 9, height: 9, color: C.greenAccent }} />
-              <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.18em', color: C.textSub, textTransform: 'uppercase' }}>
-                Secure Access Portal
-              </span>
-            </div>
+            <p style={{ fontSize: 10, letterSpacing: '0.18em', color: C.textMuted, marginTop: 8, textTransform: 'uppercase' }}>
+              Security Management Console
+            </p>
           </div>
 
           {/* ── Login card ──────────────────────────────────────────── */}
