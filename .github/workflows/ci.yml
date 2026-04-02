@@ -20,10 +20,14 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Verify key packages installed
+        run: |
+          node -e "require('otpauth'); console.log('otpauth OK')"
+          node -e "require('qrcode'); console.log('qrcode OK')"
 
       - name: TypeScript type-check (frontend)
         run: npx tsc --noEmit -p tsconfig.app.json
