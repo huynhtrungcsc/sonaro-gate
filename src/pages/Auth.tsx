@@ -111,11 +111,11 @@ export default function Auth() {
 
             {/* Card heading */}
             <div className="px-7 pt-6 pb-1">
-              <h1 className="text-[18px] font-semibold text-white tracking-tight leading-none">
-                Sign in
+              <h1 className="text-[17px] font-semibold text-white tracking-tight leading-none">
+                Sign in to Sonaro Gate
               </h1>
-              <p className="text-[12px] text-gray-500 mt-1.5">
-                System Authentication — Sonaro Gate Management Console
+              <p className="text-[11px] text-gray-600 mt-1.5">
+                System Authentication - Sonaro Gate Management Console
               </p>
             </div>
 
@@ -248,7 +248,7 @@ export default function Auth() {
           <ellipse cx="26" cy="32" rx="14" ry="17" fill="rgba(74,222,128,0.3)" stroke="rgba(74,222,128,0.5)" strokeWidth="1.5"/>
           <ellipse cx="26" cy="14" rx="8" ry="6" fill="rgba(74,222,128,0.3)" stroke="rgba(74,222,128,0.5)" strokeWidth="1.5"/>
         </svg>
-        <span className="text-[10px] text-gray-600 whitespace-nowrap">© 2025 Huỳnh Chí Trung</span>
+        <span className="text-[10px] text-gray-600 whitespace-nowrap">© 2026 Sonaro Gate</span>
         <span className="w-px h-3 bg-gray-800 shrink-0" />
         {[
           { label: 'Home',     href: 'https://sonarogate.com' },
