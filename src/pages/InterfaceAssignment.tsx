@@ -26,12 +26,6 @@ interface ZoneAssignment {
   required: boolean;
 }
 
-const MOCK_NICS: DetectedNIC[] = [
-  { name: 'ens18', mac: '00:50:56:A1:B2:C3', ip: '203.0.113.10', state: 'up', speed: '1 Gbps' },
-  { name: 'ens19', mac: '00:50:56:A1:B2:C4', ip: '192.168.1.1', state: 'up', speed: '1 Gbps' },
-  { name: 'ens20', mac: '00:50:56:A1:B2:C5', ip: '', state: 'down', speed: '1 Gbps' },
-  { name: 'ens21', mac: '00:50:56:A1:B2:C6', ip: '', state: 'down', speed: '1 Gbps' },
-];
 
 const InterfaceAssignment = () => {
   const [detectedNICs, setDetectedNICs] = useState<DetectedNIC[]>([]);

@@ -1,7 +1,10 @@
 import { Shell } from '@/components/layout/Shell';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { FortiToggle } from '@/components/ui/forti-toggle';
 import { toast } from 'sonner';
+import { useSystemSettings } from '@/hooks/useDbData';
+import { systemSettingsApi } from '@/lib/api';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   Dialog,
   DialogContent,
@@ -32,6 +35,9 @@ interface RIPInterface {
 }
 
 const RIPConfig = () => {
+  const queryClient = useQueryClient();
+  const { data: dbSettings = [] } = useSystemSettings();
+  const [loaded, setLoaded] = useState(false);
   const [enabled, setEnabled] = useState(false);
   const [version, setVersion] = useState<'1' | '2'>('2');
   const [defaultMetric, setDefaultMetric] = useState(1);
@@ -42,6 +48,37 @@ const RIPConfig = () => {
   const [addNetworkOpen, setAddNetworkOpen] = useState(false);
   const [newNetwork, setNewNetwork] = useState('');
   const [deleteNetworkId, setDeleteNetworkId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (loaded || !(dbSettings as any[]).length) return;
+    const get = (key: string) => (dbSettings as any[]).find((s: any) => s.key === key)?.value;
+    const cfg = get('rip_config');
+    if (cfg) {
+      try {
+        const p = JSON.parse(cfg);
+        if (p.enabled !== undefined) setEnabled(p.enabled);
+        if (p.version) setVersion(p.version);
+        if (p.defaultMetric !== undefined) setDefaultMetric(p.defaultMetric);
+        if (p.updateTimer !== undefined) setUpdateTimer(p.updateTimer);
+        if (Array.isArray(p.networks)) setNetworks(p.networks);
+        if (Array.isArray(p.interfaces)) setInterfaces(p.interfaces);
+      } catch {}
+    }
+    setLoaded(true);
+  }, [dbSettings, loaded]);
+
+  const handleApply = async () => {
+    try {
+      await systemSettingsApi.upsert('rip_config', JSON.stringify({ enabled, version, defaultMetric, updateTimer, networks, interfaces }));
+      queryClient.invalidateQueries({ queryKey: ['system-settings'] });
+      toast.success('RIP configuration saved');
+    } catch { toast.error('Failed to save RIP configuration'); }
+  };
+
+  const handleRefresh = () => {
+    setLoaded(false);
+    queryClient.invalidateQueries({ queryKey: ['system-settings'] });
+  };
 
   const handleAddNetwork = () => {
     if (!newNetwork.trim()) { toast.error('Network address is required'); return; }
@@ -83,8 +120,8 @@ const RIPConfig = () => {
             + Create New
           </button>
           <div className="forti-toolbar-separator" />
-          <button className="forti-toolbar-btn" onClick={() => toast.success('RIP configuration applied')}>Apply</button>
-          <button className="forti-toolbar-btn" onClick={() => toast.success('Configuration refreshed')}>Refresh</button>
+          <button className="forti-toolbar-btn" onClick={handleApply}>Apply</button>
+          <button className="forti-toolbar-btn" onClick={handleRefresh}>Refresh</button>
         </div>
 
         <div className="grid grid-cols-3 gap-4 p-3">

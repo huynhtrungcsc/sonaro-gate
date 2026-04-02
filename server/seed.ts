@@ -64,6 +64,14 @@ const SYSTEM_DEFAULTS = [
   { key: 'local_users', value: INITIAL_LOCAL_USERS, description: 'Firewall local user accounts (JSON)' },
   { key: 'user_groups', value: INITIAL_USER_GROUPS, description: 'Firewall user groups (JSON)' },
   { key: 'auth_servers', value: '[]', description: 'External authentication servers (JSON)' },
+  { key: 'license_vm_status', value: 'Valid', description: 'VM License status' },
+  { key: 'license_support_status', value: 'Valid', description: 'Support contract status' },
+  { key: 'license_ids_status', value: 'Valid', description: 'IDS/IPS license status' },
+  { key: 'license_av_status', value: 'Valid', description: 'AntiVirus license status' },
+  { key: 'license_webfilter_status', value: 'Valid', description: 'Web Filtering license status' },
+  { key: 'bgp_config', value: JSON.stringify({ enabled: false, localAS: 65001, routerId: '', keepalive: 60, holdTime: 180, neighbors: [] }), description: 'BGP routing protocol configuration (JSON)' },
+  { key: 'ospf_config', value: JSON.stringify({ enabled: false, routerId: '', abrType: 'Cisco', defaultMetric: 10, refBandwidth: 100, areas: [], interfaces: [] }), description: 'OSPF routing protocol configuration (JSON)' },
+  { key: 'rip_config', value: JSON.stringify({ enabled: false, version: '2', defaultMetric: 1, updateTimer: 30, networks: [], interfaces: [] }), description: 'RIP routing protocol configuration (JSON)' },
 ];
 
 async function ensureSystemSettings() {

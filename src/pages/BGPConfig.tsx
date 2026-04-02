@@ -1,7 +1,10 @@
 import { Shell } from '@/components/layout/Shell';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { FortiToggle } from '@/components/ui/forti-toggle';
 import { toast } from 'sonner';
+import { useSystemSettings } from '@/hooks/useDbData';
+import { systemSettingsApi } from '@/lib/api';
+import { useQueryClient } from '@tanstack/react-query';
 
 interface BGPNeighbor {
   id: string;
@@ -20,25 +23,58 @@ const STATUS_CLASS: Record<string, string> = {
 };
 
 const BGPConfig = () => {
+  const queryClient = useQueryClient();
+  const { data: dbSettings = [] } = useSystemSettings();
+  const [loaded, setLoaded] = useState(false);
   const [enabled, setEnabled] = useState(false);
   const [localAS, setLocalAS] = useState(65001);
-  const [routerId, setRouterId] = useState('10.0.0.1');
+  const [routerId, setRouterId] = useState('');
   const [keepalive, setKeepalive] = useState(60);
   const [holdTime, setHoldTime] = useState(180);
-  const [neighbors] = useState<BGPNeighbor[]>([]);
+  const [neighbors, setNeighbors] = useState<BGPNeighbor[]>([]);
+
+  useEffect(() => {
+    if (loaded || !(dbSettings as any[]).length) return;
+    const get = (key: string) => (dbSettings as any[]).find((s: any) => s.key === key)?.value;
+    const cfg = get('bgp_config');
+    if (cfg) {
+      try {
+        const p = JSON.parse(cfg);
+        if (p.enabled !== undefined) setEnabled(p.enabled);
+        if (p.localAS !== undefined) setLocalAS(p.localAS);
+        if (p.routerId !== undefined) setRouterId(p.routerId);
+        if (p.keepalive !== undefined) setKeepalive(p.keepalive);
+        if (p.holdTime !== undefined) setHoldTime(p.holdTime);
+        if (Array.isArray(p.neighbors)) setNeighbors(p.neighbors);
+      } catch {}
+    }
+    setLoaded(true);
+  }, [dbSettings, loaded]);
+
+  const handleApply = async () => {
+    try {
+      await systemSettingsApi.upsert('bgp_config', JSON.stringify({ enabled, localAS, routerId, keepalive, holdTime, neighbors }));
+      queryClient.invalidateQueries({ queryKey: ['system-settings'] });
+      toast.success('BGP configuration saved');
+    } catch { toast.error('Failed to save BGP configuration'); }
+  };
+
+  const handleRefresh = () => {
+    setLoaded(false);
+    queryClient.invalidateQueries({ queryKey: ['system-settings'] });
+  };
 
   return (
     <Shell>
       <div className="space-y-0">
         <div className="forti-toolbar">
-          <button className="forti-toolbar-btn primary" disabled={!enabled} onClick={() => toast.info('Add neighbor via CLI: neighbor <ip> remote-as <asn>')}>+ Create New</button>
+          <button className="forti-toolbar-btn primary" disabled={!enabled} onClick={() => toast.info('Add BGP neighbor: enter IP and remote AS below, then click Apply')}>+ Create New</button>
           <div className="forti-toolbar-separator" />
-          <button className="forti-toolbar-btn" onClick={() => toast.success('BGP configuration applied')}>Apply</button>
-          <button className="forti-toolbar-btn" onClick={() => toast.success('Configuration refreshed')}>Refresh</button>
+          <button className="forti-toolbar-btn" onClick={handleApply}>Apply</button>
+          <button className="forti-toolbar-btn" onClick={handleRefresh}>Refresh</button>
         </div>
 
         <div className="grid grid-cols-3 gap-4 p-3">
-          {/* Settings */}
           <div className="col-span-1 section">
             <div className="section-header">Basic Settings</div>
             <div className="section-body space-y-2">
@@ -62,6 +98,7 @@ const BGPConfig = () => {
                   type="text"
                   value={routerId}
                   onChange={e => setRouterId(e.target.value)}
+                  placeholder="e.g. 10.0.0.1"
                   className="forti-input w-28 font-mono"
                   disabled={!enabled}
                 />
@@ -103,7 +140,6 @@ const BGPConfig = () => {
             </div>
           </div>
 
-          {/* Neighbors table */}
           <div className="col-span-2 section">
             <div className="section-header">BGP Neighbors</div>
             <table className="data-table">

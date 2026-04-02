@@ -35,13 +35,6 @@ const Widget = ({
   </div>
 );
 
-const licenses = [
-  { name: 'VM License', status: 'Valid' },
-  { name: 'Support', status: 'Valid' },
-  { name: 'IDS & IPS', status: 'Valid' },
-  { name: 'AntiVirus', status: 'Valid' },
-  { name: 'Web Filtering', status: 'Valid' },
-];
 
 // ─── Dashboard ──────────────────────────────────
 const Dashboard = () => {
@@ -127,16 +120,26 @@ const Dashboard = () => {
               ))}
             </div>
           </Widget>
-          <Widget title="Licenses">
+          <Widget title="Licenses" loading={settings.isLoading}>
             <div className="space-y-1">
-              {licenses.map((lic, idx) => (
-                <div key={idx} className="flex items-center justify-between text-[11px] py-0.5">
-                  <span className="text-[#666]">{lic.name}</span>
-                  <span className="inline-flex items-center gap-1 text-[#4caf50]">
-                    <CheckCircle2 size={12} /> {lic.status}
-                  </span>
-                </div>
-              ))}
+              {[
+                { name: 'VM License', key: 'license_vm_status' },
+                { name: 'Support', key: 'license_support_status' },
+                { name: 'IDS & IPS', key: 'license_ids_status' },
+                { name: 'AntiVirus', key: 'license_av_status' },
+                { name: 'Web Filtering', key: 'license_webfilter_status' },
+              ].map(lic => {
+                const status = getSetting(lic.key, 'Not Licensed');
+                const isValid = status.toLowerCase() === 'valid';
+                return (
+                  <div key={lic.key} className="flex items-center justify-between text-[11px] py-0.5">
+                    <span className="text-[#666]">{lic.name}</span>
+                    <span className={`inline-flex items-center gap-1 ${isValid ? 'text-[#4caf50]' : 'text-[#e53935]'}`}>
+                      <CheckCircle2 size={12} /> {status}
+                    </span>
+                  </div>
+                );
+              })}
             </div>
           </Widget>
         </div>

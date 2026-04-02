@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react';
 import { Shell } from '@/components/layout/Shell';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
+import { useAuditLogs } from '@/hooks/useDbData';
 import { 
   Search, 
   Download, 
@@ -28,6 +29,7 @@ interface LogEntry {
 
 
 const SystemLogs = () => {
+  const { data: rawLogs = [], refetch } = useAuditLogs(1000);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedSeverity, setSelectedSeverity] = useState<string>('all');
   const [selectedInterface, setSelectedInterface] = useState<string>('all');
@@ -45,9 +47,36 @@ const SystemLogs = () => {
     { value: 'all', label: 'All Time' },
   ];
 
+  const allLogs = useMemo((): LogEntry[] => {
+    return (rawLogs as any[]).map(log => {
+      const action = (log.action ?? '').toUpperCase();
+      const severity: LogEntry['severity'] =
+        /\bFAIL\b|\bERROR\b/.test(action) ? 'error' :
+        /\bWARN\b/.test(action) ? 'warning' :
+        /LOGIN_FAIL|AUTH_FAIL|UNAUTHORIZED/.test(action) ? 'warning' :
+        /\bDELETE\b|\bREMOVE\b/.test(action) ? 'notice' :
+        /\bLOGIN\b|\bLOGOUT\b/.test(action) ? 'notice' :
+        'info';
+      const parts: string[] = [log.action ?? ''];
+      if (log.resource_type) parts.push(log.resource_type);
+      if (log.resource_id) parts.push(`#${log.resource_id}`);
+      if (log.details) parts.push(`— ${log.details}`);
+      return {
+        id: log.id,
+        timestamp: new Date(log.created_at),
+        severity,
+        facility: log.resource_type || 'system',
+        interface: 'System',
+        source: log.ip_address || 'System',
+        message: parts.join(' '),
+        process: log.user_id ?? undefined,
+      };
+    });
+  }, [rawLogs]);
+
   // Filter logs
   const filteredLogs = useMemo(() => {
-    let filtered = [];
+    let filtered: LogEntry[] = allLogs;
 
     // Time range filter
     const now = Date.now();
@@ -185,7 +214,7 @@ const SystemLogs = () => {
             <p className="text-sm text-muted-foreground mt-0.5">Real-time system and security event logs</p>
           </div>
           <div className="flex items-center gap-2">
-            <button className="btn btn-ghost flex items-center gap-2">
+            <button className="btn btn-ghost flex items-center gap-2" onClick={() => refetch()}>
               <RefreshCw size={14} />
               Refresh
             </button>
