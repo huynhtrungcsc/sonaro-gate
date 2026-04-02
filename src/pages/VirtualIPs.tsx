@@ -50,21 +50,21 @@ interface VirtualIP {
   name: string;
   comments: string;
   type: 'static-nat' | 'load-balance' | 'server-load-balance' | 'access-proxy';
-  externalIP: string;
-  mappedIP: string;
+  external_ip: string;
+  mapped_ip: string;
   interface: string;
   protocol: string;
-  externalPort: string;
-  mappedPort: string;
+  external_port: string;
+  mapped_port: string;
   enabled: boolean;
   sessions: number;
 }
 
 const initialVIPs: VirtualIP[] = [
-  { id: '1', name: 'WebServer-VIP', comments: 'Main web server virtual IP', type: 'static-nat', externalIP: '203.0.113.10', mappedIP: '192.168.1.100', interface: 'wan1', protocol: 'TCP', externalPort: '443', mappedPort: '443', enabled: true, sessions: 1247 },
-  { id: '2', name: 'MailServer-VIP', comments: 'Email server SMTP and IMAP', type: 'static-nat', externalIP: '203.0.113.11', mappedIP: '192.168.1.101', interface: 'wan1', protocol: 'TCP', externalPort: '25,143,993', mappedPort: '25,143,993', enabled: true, sessions: 89 },
-  { id: '3', name: 'FTP-VIP', comments: 'FTP server access', type: 'static-nat', externalIP: '203.0.113.12', mappedIP: '192.168.1.102', interface: 'wan1', protocol: 'TCP', externalPort: '21', mappedPort: '21', enabled: false, sessions: 0 },
-  { id: '4', name: 'LoadBalancer-VIP', comments: 'Load balanced web servers', type: 'load-balance', externalIP: '203.0.113.20', mappedIP: '192.168.1.110-115', interface: 'wan1', protocol: 'TCP', externalPort: '80,443', mappedPort: '80,443', enabled: true, sessions: 3521 },
+  { id: '1', name: 'WebServer-VIP', comments: 'Main web server virtual IP', type: 'static-nat', external_ip: '203.0.113.10', mapped_ip: '192.168.1.100', interface: 'wan1', protocol: 'TCP', external_port: '443', mapped_port: '443', enabled: true, sessions: 1247 },
+  { id: '2', name: 'MailServer-VIP', comments: 'Email server SMTP and IMAP', type: 'static-nat', external_ip: '203.0.113.11', mapped_ip: '192.168.1.101', interface: 'wan1', protocol: 'TCP', external_port: '25,143,993', mapped_port: '25,143,993', enabled: true, sessions: 89 },
+  { id: '3', name: 'FTP-VIP', comments: 'FTP server access', type: 'static-nat', external_ip: '203.0.113.12', mapped_ip: '192.168.1.102', interface: 'wan1', protocol: 'TCP', external_port: '21', mapped_port: '21', enabled: false, sessions: 0 },
+  { id: '4', name: 'LoadBalancer-VIP', comments: 'Load balanced web servers', type: 'load-balance', external_ip: '203.0.113.20', mapped_ip: '192.168.1.110-115', interface: 'wan1', protocol: 'TCP', external_port: '80,443', mapped_port: '80,443', enabled: true, sessions: 3521 },
 ];
 
 interface SortableVIPRowProps {
@@ -238,8 +238,8 @@ const VirtualIPs = () => {
     const csvData = vips.map(v => ({
       name: v.name,
       type: v.type,
-      externalIP: v.external_ip,
-      mappedIP: v.mapped_ip,
+      external_ip: v.external_ip,
+      mapped_ip: v.mapped_ip,
       interface: v.interface,
       protocol: v.protocol,
       port: v.external_port,

@@ -47,19 +47,20 @@ interface Schedule {
   description: string;
   enabled: boolean;
   days: number[];
-  startTime: string;
-  endTime: string;
-  usageCount: number;
-  created: Date;
+  start_time: string;
+  end_time: string;
+  usage_count: number;
+  created_at?: string;
+  updated_at?: string;
 }
 
 const mockSchedules: Schedule[] = [
-  { id: 'sched-1', name: 'business_hours', description: 'Standard business hours', enabled: true, days: [1, 2, 3, 4, 5], startTime: '08:00', endTime: '18:00', usageCount: 8, created: new Date('2024-01-01') },
-  { id: 'sched-2', name: 'after_hours', description: 'After work hours', enabled: true, days: [1, 2, 3, 4, 5], startTime: '18:00', endTime: '08:00', usageCount: 3, created: new Date('2024-01-01') },
-  { id: 'sched-3', name: 'weekends', description: 'Weekend access', enabled: true, days: [0, 6], startTime: '00:00', endTime: '23:59', usageCount: 2, created: new Date('2024-01-05') },
-  { id: 'sched-4', name: 'maintenance_window', description: 'Sunday maintenance window', enabled: true, days: [0], startTime: '02:00', endTime: '06:00', usageCount: 5, created: new Date('2024-01-10') },
-  { id: 'sched-5', name: 'night_shift', description: 'Night shift access', enabled: false, days: [1, 2, 3, 4, 5], startTime: '22:00', endTime: '06:00', usageCount: 0, created: new Date('2024-01-15') },
-  { id: 'sched-6', name: 'lunch_break', description: 'Lunch break restriction', enabled: true, days: [1, 2, 3, 4, 5], startTime: '12:00', endTime: '13:00', usageCount: 1, created: new Date('2024-02-01') },
+  { id: 'sched-1', name: 'business_hours', description: 'Standard business hours', enabled: true, days: [1, 2, 3, 4, 5], start_time: '08:00', end_time: '18:00', usage_count: 8 },
+  { id: 'sched-2', name: 'after_hours', description: 'After work hours', enabled: true, days: [1, 2, 3, 4, 5], start_time: '18:00', end_time: '08:00', usage_count: 3 },
+  { id: 'sched-3', name: 'weekends', description: 'Weekend access', enabled: true, days: [0, 6], start_time: '00:00', end_time: '23:59', usage_count: 2 },
+  { id: 'sched-4', name: 'maintenance_window', description: 'Sunday maintenance window', enabled: true, days: [0], start_time: '02:00', end_time: '06:00', usage_count: 5 },
+  { id: 'sched-5', name: 'night_shift', description: 'Night shift access', enabled: false, days: [1, 2, 3, 4, 5], start_time: '22:00', end_time: '06:00', usage_count: 0 },
+  { id: 'sched-6', name: 'lunch_break', description: 'Lunch break restriction', enabled: true, days: [1, 2, 3, 4, 5], start_time: '12:00', end_time: '13:00', usage_count: 1 },
 ];
 
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -71,8 +72,8 @@ const formSchema = z.object({
   description: z.string().max(100),
   enabled: z.boolean(),
   days: z.array(z.number()).min(1, 'Select at least one day'),
-  startTime: z.string().regex(/^([01]?[0-9]|2[0-3]):[0-5][0-9]$/),
-  endTime: z.string().regex(/^([01]?[0-9]|2[0-3]):[0-5][0-9]$/),
+  start_time: z.string().regex(/^([01]?[0-9]|2[0-3]):[0-5][0-9]$/),
+  end_time: z.string().regex(/^([01]?[0-9]|2[0-3]):[0-5][0-9]$/),
 });
 
 type FormValues = z.infer<typeof formSchema>;
@@ -92,18 +93,18 @@ const Schedules = () => {
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
-    defaultValues: { name: '', description: '', enabled: true, days: [1, 2, 3, 4, 5], startTime: '09:00', endTime: '17:00' },
+    defaultValues: { name: '', description: '', enabled: true, days: [1, 2, 3, 4, 5], start_time: '09:00', end_time: '17:00' },
   });
 
   const handleAdd = () => {
     setEditingSchedule(null);
-    form.reset({ name: '', description: '', enabled: true, days: [1, 2, 3, 4, 5], startTime: '09:00', endTime: '17:00' });
+    form.reset({ name: '', description: '', enabled: true, days: [1, 2, 3, 4, 5], start_time: '09:00', end_time: '17:00' });
     setModalOpen(true);
   };
 
   const handleEdit = (schedule: Schedule) => {
     setEditingSchedule(schedule);
-    form.reset({ name: schedule.name, description: schedule.description, enabled: schedule.enabled, days: schedule.days, startTime: schedule.start_time, endTime: schedule.end_time });
+    form.reset({ name: schedule.name, description: schedule.description, enabled: schedule.enabled, days: schedule.days, start_time: schedule.start_time, end_time: schedule.end_time });
     setModalOpen(true);
   };
 
@@ -128,7 +129,7 @@ const Schedules = () => {
   };
 
   const onSubmit = (values: FormValues) => {
-    const dbData = { name: values.name, description: values.description, enabled: values.enabled, days: values.days, start_time: values.startTime, end_time: values.endTime };
+    const dbData = { name: values.name, description: values.description, enabled: values.enabled, days: values.days, start_time: values.start_time, end_time: values.end_time };
     if (editingSchedule) {
       updateMut.mutate({ id: (editingSchedule as any).id, d: dbData });
     } else {
@@ -503,13 +504,13 @@ const Schedules = () => {
               <div className="grid grid-cols-3 gap-3 items-center">
                 <span className="forti-label text-right">Time</span>
                 <div className="col-span-2 flex items-center gap-2">
-                  <FormField control={form.control} name="startTime" render={({ field }) => (
+                  <FormField control={form.control} name="start_time" render={({ field }) => (
                     <FormItem className="flex-1 space-y-0">
                       <FormControl><Input type="time" className="forti-input w-full" {...field} /></FormControl>
                     </FormItem>
                   )} />
                   <span className="text-[11px] text-[#999]">to</span>
-                  <FormField control={form.control} name="endTime" render={({ field }) => (
+                  <FormField control={form.control} name="end_time" render={({ field }) => (
                     <FormItem className="flex-1 space-y-0">
                       <FormControl><Input type="time" className="forti-input w-full" {...field} /></FormControl>
                     </FormItem>

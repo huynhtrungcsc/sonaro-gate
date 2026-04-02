@@ -65,13 +65,13 @@ interface IPPool {
   name: string;
   comments: string;
   type: 'overload' | 'one-to-one' | 'fixed-port-range' | 'port-block-allocation';
-  startIP: string;
-  endIP: string;
-  associatedInterface: string;
-  arpReply: boolean;
+  start_ip: string;
+  end_ip: string;
+  associated_interface: string;
+  arp_reply: boolean;
   enabled: boolean;
-  usedIPs: number;
-  totalIPs: number;
+  used_ips: number;
+  total_ips: number;
 }
 
 interface SortablePoolRowProps {

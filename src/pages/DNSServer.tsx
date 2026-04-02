@@ -189,8 +189,8 @@ const DNSServer = () => {
   const handleExport = (type: 'zones' | 'records' | 'filters', format: 'json' | 'csv') => {
     const data = type === 'zones' ? zones : type === 'records' ? records : filterProfiles;
     const filename = `dns-${type}-${new Date().toISOString().split('T')[0]}`;
-    if (format === 'json') exportToJSON(data, `${filename}.json`);
-    else exportToCSV(data, `${filename}.csv`);
+    if (format === 'json') exportToJSON(data as any, `${filename}.json`);
+    else exportToCSV(data as any, `${filename}.csv`);
     toast.success(`Exported ${data.length} ${type}`);
   };
   const handleImport = (type: 'zones' | 'records' | 'filters') => {
