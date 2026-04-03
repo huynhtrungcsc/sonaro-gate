@@ -17,6 +17,80 @@ import { useSystemSettings } from '@/hooks/useDbData';
 import { useRealtimeMetrics } from '@/hooks/useRealtimeMetrics';
 import { formatUptime, formatBytes } from '@/lib/formatters';
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Feature Status catalog — mirrors FEATURE_REGISTRY in server/seed.ts
+//
+// HOW TO ADD A NEW FEATURE:
+//   1. Add an entry here matching the DB key you added to FEATURE_REGISTRY.
+//   2. Done — the widget renders automatically from this list.
+//
+// Status styling matrix:
+//   Valid         → green  ●  (running and licensed)
+//   Licensed      → blue   ●  (future: commercial key active)
+//   Trial         → blue   ◑  (future: time-limited evaluation)
+//   Installed     → amber  ◑  (binary present but service stopped)
+//   Not Installed → grey   ○  (binary not found on this host)
+//   Expired       → red    ●  (future: license key expired)
+// ─────────────────────────────────────────────────────────────────────────────
+
+type FeatureStatusValue =
+  | 'Valid' | 'Licensed' | 'Trial'
+  | 'Installed' | 'Not Installed' | 'Expired'
+  | '—';
+
+interface FeatureCatalogEntry {
+  key:  string;
+  name: string;
+  sub:  string;
+}
+
+/** Central catalog — add new features here after adding them to seed.ts. */
+const FEATURE_CATALOG: FeatureCatalogEntry[] = [
+  { key: 'feature_core_status',      name: 'Sonaro Gate',   sub: 'Core application'          },
+  { key: 'feature_ids_status',       name: 'IDS & IPS',     sub: 'Suricata engine'            },
+  { key: 'feature_webfilter_status', name: 'Web Filtering', sub: 'DNS filter via dnsmasq'     },
+  { key: 'feature_vpn_status',       name: 'VPN',           sub: 'WireGuard / OpenVPN'        },
+];
+
+function featureStyle(status: FeatureStatusValue): { color: string; dot: string } {
+  switch (status) {
+    case 'Valid':         return { color: '#4caf50', dot: '●' };
+    case 'Licensed':      return { color: '#1976d2', dot: '●' };
+    case 'Trial':         return { color: '#1976d2', dot: '◑' };
+    case 'Installed':     return { color: '#f59e0b', dot: '◑' };
+    case 'Not Installed': return { color: '#999',    dot: '○' };
+    case 'Expired':       return { color: '#e53935', dot: '●' };
+    default:              return { color: '#ccc',    dot: '○' };
+  }
+}
+
+function FeatureStatusList({ getSetting }: { getSetting: (key: string, fallback: string) => string }) {
+  return (
+    <>
+      <div className="space-y-1">
+        {FEATURE_CATALOG.map(feat => {
+          const status = getSetting(feat.key, '—') as FeatureStatusValue;
+          const { color, dot } = featureStyle(status);
+          return (
+            <div key={feat.key} className="flex items-start justify-between text-[11px] py-0.5 gap-2">
+              <div className="min-w-0">
+                <div className="text-[#333] font-medium leading-tight">{feat.name}</div>
+                <div className="text-[9px] text-[#aaa] leading-tight">{feat.sub}</div>
+              </div>
+              <span className="inline-flex items-center gap-1 font-medium shrink-0 mt-0.5" style={{ color }}>
+                <span style={{ fontSize: 8 }}>{dot}</span> {status}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+      <div className="mt-2 pt-1.5 border-t border-[#eee] text-[9px] text-[#bbb]">
+        Detected on boot · auto-refreshes on restart
+      </div>
+    </>
+  );
+}
+
 // ─── Widget wrapper ─────────────────────────────
 const Widget = ({
   title, children, className = '', headerActions, loading
@@ -127,41 +201,7 @@ const Dashboard = () => {
             </div>
           </Widget>
           <Widget title="Feature Status" loading={settings.isLoading}>
-            <div className="space-y-1">
-              {[
-                { name: 'Sonaro Gate',   sub: 'Core application',         key: 'license_vm_status' },
-                { name: 'Support',       sub: 'Open-source community',     key: 'license_support_status' },
-                { name: 'IDS & IPS',     sub: 'Suricata engine',           key: 'license_ids_status' },
-                { name: 'Web Filtering', sub: 'DNS filter via dnsmasq',    key: 'license_webfilter_status' },
-              ].map(lic => {
-                const status = getSetting(lic.key, '—');
-                const lc = status.toLowerCase();
-                const color =
-                  lc === 'valid'                ? '#4caf50' :
-                  lc === 'community'            ? '#1976d2' :
-                  lc === 'installed (inactive)' ? '#f59e0b' :
-                  '#999';
-                const dot =
-                  lc === 'valid'                ? '●' :
-                  lc === 'community'            ? '●' :
-                  lc === 'installed (inactive)' ? '◑' :
-                  '○';
-                return (
-                  <div key={lic.key} className="flex items-start justify-between text-[11px] py-0.5 gap-2">
-                    <div className="min-w-0">
-                      <div className="text-[#333] font-medium leading-tight">{lic.name}</div>
-                      <div className="text-[9px] text-[#aaa] leading-tight">{lic.sub}</div>
-                    </div>
-                    <span className="inline-flex items-center gap-1 font-medium shrink-0 mt-0.5" style={{ color }}>
-                      <span style={{ fontSize: 8 }}>{dot}</span> {status}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-            <div className="mt-2 pt-1.5 border-t border-[#eee] text-[9px] text-[#bbb]">
-              Detected on boot
-            </div>
+            <FeatureStatusList getSetting={getSetting} />
           </Widget>
         </div>
 

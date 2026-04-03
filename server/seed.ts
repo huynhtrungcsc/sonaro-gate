@@ -29,11 +29,11 @@ const SYSTEM_DEFAULTS = [
   { key: 'local_users', value: '[]', description: 'Firewall local user accounts (JSON)' },
   { key: 'user_groups', value: '[]', description: 'Firewall user groups (JSON)' },
   { key: 'auth_servers', value: '[]', description: 'External authentication servers (JSON)' },
-  { key: 'license_vm_status', value: 'Valid', description: 'VM License status' },
-  { key: 'license_support_status', value: 'Valid', description: 'Support contract status' },
-  { key: 'license_ids_status', value: 'Valid', description: 'IDS/IPS license status' },
-  { key: 'license_av_status', value: 'Valid', description: 'AntiVirus license status' },
-  { key: 'license_webfilter_status', value: 'Valid', description: 'Web Filtering license status' },
+  // Feature status — initial seed values; overwritten on every boot by detectAndUpdateFeatureStatus()
+  { key: 'feature_core_status',      value: 'Valid',         description: 'Core application status' },
+  { key: 'feature_ids_status',       value: 'Not Installed', description: 'IDS/IPS (Suricata) status' },
+  { key: 'feature_webfilter_status', value: 'Not Installed', description: 'Web Filtering (dnsmasq) status' },
+  { key: 'feature_vpn_status',       value: 'Not Installed', description: 'VPN (WireGuard / OpenVPN) status' },
   { key: 'bgp_config', value: JSON.stringify({ enabled: false, localAS: 65001, routerId: '', keepalive: 60, holdTime: 180, neighbors: [] }), description: 'BGP routing protocol configuration (JSON)' },
   { key: 'ospf_config', value: JSON.stringify({ enabled: false, routerId: '', abrType: 'Cisco', defaultMetric: 10, refBandwidth: 100, areas: [], interfaces: [] }), description: 'OSPF routing protocol configuration (JSON)' },
   { key: 'rip_config', value: JSON.stringify({ enabled: false, version: '2', defaultMetric: 1, updateTimer: 30, networks: [], interfaces: [] }), description: 'RIP routing protocol configuration (JSON)' },
@@ -52,64 +52,130 @@ async function ensureSystemSettings() {
   }
 }
 
-/**
- * Check whether a command/binary is available in PATH.
- */
+// ─────────────────────────────────────────────────────────────────
+// Feature Registry — extensible per-feature status detection
+//
+// Each entry in FEATURE_REGISTRY describes one dashboard feature:
+//   key     : DB key in system_settings (single source of truth)
+//   label   : short name used in log output
+//   detect  : function called at boot to determine current status
+//
+// Possible status strings (displayed in the UI):
+//   "Valid"              — installed and running / always available
+//   "Installed"          — binary present but service not running
+//   "Not Installed"      — binary / service not found on this host
+//   "Licensed"           — (future) commercially licensed edition
+//   "Trial"              — (future) time-limited evaluation key
+//   "Expired"            — (future) license key has expired
+//
+// HOW TO ADD A NEW FEATURE:
+//   1. Add an entry to FEATURE_REGISTRY with a unique key + detect().
+//   2. Add the same key to SYSTEM_DEFAULTS below (initial seed value).
+//   3. Add the key + display metadata to FEATURE_CATALOG in Index.tsx.
+//   Done — the rest of the pipeline (upsert, dashboard render) is automatic.
+// ─────────────────────────────────────────────────────────────────
+
+type FeatureStatus =
+  | 'Valid'
+  | 'Installed'
+  | 'Not Installed'
+  | 'Licensed'
+  | 'Trial'
+  | 'Expired';
+
+interface FeatureDefinition {
+  key:    string;
+  label:  string;
+  detect: () => FeatureStatus;
+}
+
 function binaryExists(cmd: string): boolean {
   const r = spawnSync('which', [cmd], { encoding: 'utf8' });
   return r.status === 0 && r.stdout.trim().length > 0;
 }
 
-/**
- * Check whether a systemd service is active (requires systemctl).
- */
 function serviceActive(name: string): boolean {
   const r = spawnSync('systemctl', ['is-active', '--quiet', name], { encoding: 'utf8' });
   return r.status === 0;
 }
 
+const FEATURE_REGISTRY: FeatureDefinition[] = [
+  // ── Core application — always valid (open-source, no key required)
+  {
+    key:    'feature_core_status',
+    label:  'Core',
+    detect: () => 'Valid',
+  },
+
+  // ── IDS & IPS — Suricata
+  {
+    key:   'feature_ids_status',
+    label: 'IDS/IPS',
+    detect: () => {
+      const installed = binaryExists('suricata');
+      if (!installed) return 'Not Installed';
+      return serviceActive('suricata') ? 'Valid' : 'Installed';
+    },
+  },
+
+  // ── Web Filtering — dnsmasq
+  {
+    key:   'feature_webfilter_status',
+    label: 'Web Filter',
+    detect: () => {
+      const installed = binaryExists('dnsmasq');
+      if (!installed) return 'Not Installed';
+      return serviceActive('dnsmasq') ? 'Valid' : 'Installed';
+    },
+  },
+
+  // ── VPN — WireGuard and/or OpenVPN
+  {
+    key:   'feature_vpn_status',
+    label: 'VPN',
+    detect: () => {
+      const hasWg   = binaryExists('wg') || binaryExists('wg-quick');
+      const hasOvpn = binaryExists('openvpn');
+      if (!hasWg && !hasOvpn) return 'Not Installed';
+      // At least one engine is installed — check if any VPN tunnel is active
+      const wgActive   = hasWg   && (serviceActive('wg-quick@wg0') || serviceActive('wg-quick'));
+      const ovpnActive = hasOvpn && (serviceActive('openvpn@server') || serviceActive('openvpn'));
+      return (wgActive || ovpnActive) ? 'Valid' : 'Installed';
+    },
+  },
+
+  // ── Add new features here following the same pattern.
+  // ── Example for a future paid "Threat Intelligence" subscription:
+  // {
+  //   key:   'feature_threat_intel_status',
+  //   label: 'Threat Intel',
+  //   detect: () => {
+  //     const licenseKey = process.env.THREAT_INTEL_LICENSE_KEY;
+  //     if (!licenseKey) return 'Not Installed';
+  //     // validate key against license server...
+  //     return 'Licensed';
+  //   },
+  // },
+];
+
 /**
- * Detects actually installed/active components and writes the real license status
- * into system_settings on every boot.  This overwrites the seeded placeholders so
- * the Dashboard always reflects the true state of the appliance.
- *
- * Status values:
- *   "Valid"         — feature is installed and operational
- *   "Not Installed" — relevant binary/service is not found
- *   "Community"     — open-source equivalent of a commercial subscription
+ * Run every feature's detect() function and upsert the results into
+ * system_settings.  Called on every boot so the Dashboard always shows
+ * the live state of the appliance without manual intervention.
  */
-async function detectAndUpdateLicenseStatus(): Promise<void> {
-  // VM License — always Valid: Sonaro Gate is open-source (no commercial key needed)
-  const vmStatus = 'Valid';
-
-  // IDS & IPS — Suricata must be installed AND service active
-  const suricataInstalled = binaryExists('suricata');
-  const suricataActive    = suricataInstalled && serviceActive('suricata');
-  const idsStatus         = suricataActive ? 'Valid' : suricataInstalled ? 'Installed (inactive)' : 'Not Installed';
-
-  // Web Filtering — dnsmasq must be installed and active (powers DNS filtering)
-  const dnsmasqInstalled = binaryExists('dnsmasq');
-  const dnsmasqActive    = dnsmasqInstalled && serviceActive('dnsmasq');
-  const wfStatus         = dnsmasqActive ? 'Valid' : dnsmasqInstalled ? 'Installed (inactive)' : 'Not Installed';
-
-  // Support — always "Community" (open-source project, no paid support tier)
-  const supportStatus = 'Community';
-
-  const updates: { key: string; value: string }[] = [
-    { key: 'license_vm_status',        value: vmStatus      },
-    { key: 'license_support_status',   value: supportStatus },
-    { key: 'license_ids_status',       value: idsStatus     },
-    { key: 'license_webfilter_status', value: wfStatus      },
-  ];
-
-  for (const { key, value } of updates) {
+async function detectAndUpdateFeatureStatus(): Promise<void> {
+  for (const feature of FEATURE_REGISTRY) {
+    const status = feature.detect();
     await db
       .insert(systemSettings)
-      .values({ key, value, description: key })
-      .onConflictDoUpdate({ target: systemSettings.key, set: { value } });
+      .values({ key: feature.key, value: status, description: feature.label })
+      .onConflictDoUpdate({ target: systemSettings.key, set: { value: status } });
   }
 
-  console.log(`[Seed] Feature status: Core=Valid, IDS/IPS=${idsStatus}, WebFilter=${wfStatus}, Support=${supportStatus}`);
+  const summary = FEATURE_REGISTRY
+    .map(f => `${f.label}=${f.detect()}`)
+    .join(', ');
+  console.log(`[Seed] Feature status: ${summary}`);
 }
 
 async function ensureDnsDefaults() {
@@ -211,9 +277,9 @@ async function cleanupStaleUsers() {
 export async function seedDatabase() {
   try {
     await ensureSystemSettings();
-    // Detect real service availability and write accurate license status to DB.
+    // Detect real service availability and write accurate feature status to DB.
     // Runs on every boot so installs/removals are reflected automatically.
-    await detectAndUpdateLicenseStatus();
+    await detectAndUpdateFeatureStatus();
     await ensureDnsDefaults();
     await ensureServices();
     await ensureSchedules();
