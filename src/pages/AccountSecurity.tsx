@@ -53,9 +53,17 @@ export default function AccountSecurity() {
   const handleSetup = async () => {
     if (isMock) { toast.error('MFA setup requires a real database connection.'); return; }
     setSetupLoading(true);
-    const data = await mfaApi.setup();
+    const { data, error } = await mfaApi.setup();
     setSetupLoading(false);
-    if (!data) { toast.error('Failed to generate MFA setup. Try again.'); return; }
+    if (!data) {
+      const msg = error?.message ?? '';
+      if (msg.includes('401') || msg.toLowerCase().includes('unauthorized')) {
+        toast.error('Session expired. Please log in again.');
+      } else {
+        toast.error('Failed to generate MFA setup. Try again.');
+      }
+      return;
+    }
     setQrData({ secret: data.secret, qr: data.qr });
     setSetupCode('');
     setView('setup-qr');

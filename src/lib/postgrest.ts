@@ -315,9 +315,8 @@ export const mfaApi = {
     return { mfa_enabled: data?.mfa_enabled ?? false };
   },
 
-  async setup(): Promise<{ secret: string; qr: string; otpauth_url: string } | null> {
-    const { data } = await request<any>('/auth/mfa/setup', { method: 'POST' });
-    return data;
+  async setup(): Promise<{ data: { secret: string; qr: string; otpauth_url: string } | null; error: Error | null }> {
+    return request<{ secret: string; qr: string; otpauth_url: string }>('/auth/mfa/setup', { method: 'POST' });
   },
 
   async confirm(code: string): Promise<{ success: boolean; error?: string }> {
