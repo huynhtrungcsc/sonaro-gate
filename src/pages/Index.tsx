@@ -126,26 +126,39 @@ const Dashboard = () => {
               ))}
             </div>
           </Widget>
-          <Widget title="Licenses" loading={settings.isLoading}>
+          <Widget title="Feature Status" loading={settings.isLoading}>
             <div className="space-y-1">
               {[
-                { name: 'VM License', key: 'license_vm_status' },
-                { name: 'Support', key: 'license_support_status' },
-                { name: 'IDS & IPS', key: 'license_ids_status' },
-                { name: 'AntiVirus', key: 'license_av_status' },
-                { name: 'Web Filtering', key: 'license_webfilter_status' },
+                { name: 'Base System',    key: 'license_vm_status' },
+                { name: 'Support',        key: 'license_support_status' },
+                { name: 'IDS & IPS',      key: 'license_ids_status' },
+                { name: 'AntiVirus',      key: 'license_av_status' },
+                { name: 'Web Filtering',  key: 'license_webfilter_status' },
               ].map(lic => {
-                const status = getSetting(lic.key, 'Not Licensed');
-                const isValid = status.toLowerCase() === 'valid';
+                const status = getSetting(lic.key, '—');
+                const lc = status.toLowerCase();
+                const color =
+                  lc === 'valid'                 ? '#4caf50' :
+                  lc === 'community'             ? '#1976d2' :
+                  lc === 'installed (inactive)'  ? '#f59e0b' :
+                  '#e53935';
+                const icon =
+                  lc === 'valid'                 ? '●' :
+                  lc === 'community'             ? '●' :
+                  lc === 'installed (inactive)'  ? '◑' :
+                  '○';
                 return (
                   <div key={lic.key} className="flex items-center justify-between text-[11px] py-0.5">
                     <span className="text-[#666]">{lic.name}</span>
-                    <span className={`inline-flex items-center gap-1 ${isValid ? 'text-[#4caf50]' : 'text-[#e53935]'}`}>
-                      <CheckCircle2 size={12} /> {status}
+                    <span className="inline-flex items-center gap-1 font-medium" style={{ color }}>
+                      <span style={{ fontSize: 8 }}>{icon}</span> {status}
                     </span>
                   </div>
                 );
               })}
+            </div>
+            <div className="mt-2 pt-1.5 border-t border-[#eee] text-[9px] text-[#aaa]">
+              Detected on boot · Open-source components
             </div>
           </Widget>
         </div>

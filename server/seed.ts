@@ -12,6 +12,7 @@ import {
 } from '../shared/schema.js';
 import { hashPassword } from './auth.js';
 import { eq, sql } from 'drizzle-orm';
+import { spawnSync } from 'child_process';
 
 const SYSTEM_DEFAULTS = [
   { key: 'hostname', value: 'sonaro-gw-01', description: 'Firewall hostname' },
@@ -49,6 +50,72 @@ async function ensureSystemSettings() {
       await db.insert(systemSettings).values(setting);
     }
   }
+}
+
+/**
+ * Check whether a command/binary is available in PATH.
+ */
+function binaryExists(cmd: string): boolean {
+  const r = spawnSync('which', [cmd], { encoding: 'utf8' });
+  return r.status === 0 && r.stdout.trim().length > 0;
+}
+
+/**
+ * Check whether a systemd service is active (requires systemctl).
+ */
+function serviceActive(name: string): boolean {
+  const r = spawnSync('systemctl', ['is-active', '--quiet', name], { encoding: 'utf8' });
+  return r.status === 0;
+}
+
+/**
+ * Detects actually installed/active components and writes the real license status
+ * into system_settings on every boot.  This overwrites the seeded placeholders so
+ * the Dashboard always reflects the true state of the appliance.
+ *
+ * Status values:
+ *   "Valid"         — feature is installed and operational
+ *   "Not Installed" — relevant binary/service is not found
+ *   "Community"     — open-source equivalent of a commercial subscription
+ */
+async function detectAndUpdateLicenseStatus(): Promise<void> {
+  // VM License — always Valid: Sonaro Gate is open-source (no commercial key needed)
+  const vmStatus = 'Valid';
+
+  // IDS & IPS — Suricata must be installed AND service active
+  const suricataInstalled = binaryExists('suricata');
+  const suricataActive    = suricataInstalled && serviceActive('suricata');
+  const idsStatus         = suricataActive ? 'Valid' : suricataInstalled ? 'Installed (inactive)' : 'Not Installed';
+
+  // AntiVirus — ClamAV daemon (clamd) or at least clamscan must exist
+  const clamavInstalled = binaryExists('clamd') || binaryExists('clamscan');
+  const clamavActive    = clamavInstalled && (serviceActive('clamav-daemon') || serviceActive('clamd'));
+  const avStatus        = clamavActive ? 'Valid' : clamavInstalled ? 'Installed (inactive)' : 'Not Installed';
+
+  // Web Filtering — dnsmasq must be installed and active (powers DNS filtering)
+  const dnsmasqInstalled = binaryExists('dnsmasq');
+  const dnsmasqActive    = dnsmasqInstalled && serviceActive('dnsmasq');
+  const wfStatus         = dnsmasqActive ? 'Valid' : dnsmasqInstalled ? 'Installed (inactive)' : 'Not Installed';
+
+  // Support — always "Community" (open-source project, no paid support tier)
+  const supportStatus = 'Community';
+
+  const updates: { key: string; value: string }[] = [
+    { key: 'license_vm_status',        value: vmStatus      },
+    { key: 'license_support_status',   value: supportStatus },
+    { key: 'license_ids_status',       value: idsStatus     },
+    { key: 'license_av_status',        value: avStatus      },
+    { key: 'license_webfilter_status', value: wfStatus      },
+  ];
+
+  for (const { key, value } of updates) {
+    await db
+      .insert(systemSettings)
+      .values({ key, value, description: key })
+      .onConflictDoUpdate({ target: systemSettings.key, set: { value } });
+  }
+
+  console.log(`[Seed] License status: VM=${vmStatus}, IDS=${idsStatus}, AV=${avStatus}, WF=${wfStatus}, Support=${supportStatus}`);
 }
 
 async function ensureDnsDefaults() {
@@ -150,6 +217,9 @@ async function cleanupStaleUsers() {
 export async function seedDatabase() {
   try {
     await ensureSystemSettings();
+    // Detect real service availability and write accurate license status to DB.
+    // Runs on every boot so installs/removals are reflected automatically.
+    await detectAndUpdateLicenseStatus();
     await ensureDnsDefaults();
     await ensureServices();
     await ensureSchedules();
