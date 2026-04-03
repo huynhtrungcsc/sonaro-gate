@@ -54,6 +54,7 @@ RUN apk add --no-cache \
     ipset \
     curl \
     bash \
+    util-linux \
     && ln -sf /sbin/iptables-legacy  /sbin/iptables  \
     && ln -sf /sbin/ip6tables-legacy /sbin/ip6tables
 

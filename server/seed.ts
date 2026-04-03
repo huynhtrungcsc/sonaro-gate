@@ -12,7 +12,7 @@ import {
 } from '../shared/schema.js';
 import { hashPassword } from './auth.js';
 import { eq, sql } from 'drizzle-orm';
-import { spawnSync } from 'child_process';
+import { hostBinaryExists, hostServiceActive } from './host.js';
 
 const SYSTEM_DEFAULTS = [
   { key: 'hostname', value: 'sonaro-gw-01', description: 'Firewall hostname' },
@@ -89,16 +89,6 @@ interface FeatureDefinition {
   detect: () => FeatureStatus;
 }
 
-function binaryExists(cmd: string): boolean {
-  const r = spawnSync('which', [cmd], { encoding: 'utf8' });
-  return r.status === 0 && r.stdout.trim().length > 0;
-}
-
-function serviceActive(name: string): boolean {
-  const r = spawnSync('systemctl', ['is-active', '--quiet', name], { encoding: 'utf8' });
-  return r.status === 0;
-}
-
 const FEATURE_REGISTRY: FeatureDefinition[] = [
   // ── Core application — always valid (open-source, no key required)
   {
@@ -112,9 +102,9 @@ const FEATURE_REGISTRY: FeatureDefinition[] = [
     key:   'feature_ids_status',
     label: 'IDS/IPS',
     detect: () => {
-      const installed = binaryExists('suricata');
+      const installed = hostBinaryExists('suricata');
       if (!installed) return 'Not Installed';
-      return serviceActive('suricata') ? 'Valid' : 'Installed';
+      return hostServiceActive('suricata') ? 'Valid' : 'Installed';
     },
   },
 
@@ -123,9 +113,9 @@ const FEATURE_REGISTRY: FeatureDefinition[] = [
     key:   'feature_webfilter_status',
     label: 'Web Filter',
     detect: () => {
-      const installed = binaryExists('dnsmasq');
+      const installed = hostBinaryExists('dnsmasq');
       if (!installed) return 'Not Installed';
-      return serviceActive('dnsmasq') ? 'Valid' : 'Installed';
+      return hostServiceActive('dnsmasq') ? 'Valid' : 'Installed';
     },
   },
 
@@ -134,12 +124,12 @@ const FEATURE_REGISTRY: FeatureDefinition[] = [
     key:   'feature_vpn_status',
     label: 'VPN',
     detect: () => {
-      const hasWg   = binaryExists('wg') || binaryExists('wg-quick');
-      const hasOvpn = binaryExists('openvpn');
+      const hasWg   = hostBinaryExists('wg') || hostBinaryExists('wg-quick');
+      const hasOvpn = hostBinaryExists('openvpn');
       if (!hasWg && !hasOvpn) return 'Not Installed';
       // At least one engine is installed — check if any VPN tunnel is active
-      const wgActive   = hasWg   && (serviceActive('wg-quick@wg0') || serviceActive('wg-quick'));
-      const ovpnActive = hasOvpn && (serviceActive('openvpn@server') || serviceActive('openvpn'));
+      const wgActive   = hasWg   && (hostServiceActive('wg-quick@wg0') || hostServiceActive('wg-quick'));
+      const ovpnActive = hasOvpn && (hostServiceActive('openvpn@server') || hostServiceActive('openvpn'));
       return (wgActive || ovpnActive) ? 'Valid' : 'Installed';
     },
   },

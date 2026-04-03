@@ -11,13 +11,12 @@
  * Managed rule sets come from suricata-update (ET/open, etc.)
  */
 
-import { exec } from 'child_process';
-import { promisify } from 'util';
 import { readFile, writeFile, access } from 'fs/promises';
 import { constants } from 'fs';
+import { hostExec, hostBinaryExists, hostServiceActive } from './host.js';
 
-const execAsync = promisify(exec);
-
+// Suricata lives on the HOST — paths are the same whether native or Docker
+// because /etc/suricata and /var/log/suricata are bind-mounted into the container.
 const SURICATA_BINARY  = '/usr/bin/suricata';
 const SURICATA_RULES   = '/etc/suricata/rules/sonaro-local.rules';
 const SURICATA_CONF    = '/etc/suricata/suricata.yaml';
@@ -29,14 +28,8 @@ async function fileExists(path: string): Promise<boolean> {
   try { await access(path, constants.F_OK); return true; } catch { return false; }
 }
 
-async function run(cmd: string): Promise<{ ok: boolean; stdout: string; stderr: string }> {
-  try {
-    const { stdout, stderr } = await execAsync(cmd, { timeout: 30_000 });
-    return { ok: true, stdout: stdout.trim(), stderr: stderr.trim() };
-  } catch (err: any) {
-    return { ok: false, stdout: err.stdout?.trim() ?? '', stderr: err.stderr?.trim() ?? err.message };
-  }
-}
+// Alias for backwards-compat with existing call sites
+const run = (cmd: string, opts?: { timeout?: number }) => hostExec(cmd, opts);
 
 // ─── Status ─────────────────────────────────────────────────────────────────
 
@@ -47,18 +40,18 @@ export async function getSuricataStatus(): Promise<{
   ruleCount: number;
   pid: number | null;
 }> {
-  const installed = await fileExists(SURICATA_BINARY);
+  // Check the host binary (Docker-aware)
+  const installed = hostBinaryExists('suricata');
   if (!installed) {
     return { installed: false, running: false, version: null, ruleCount: 0, pid: null };
   }
 
-  const [ver, status, rules] = await Promise.all([
-    run(`${SURICATA_BINARY} --build-info 2>/dev/null | head -1`),
-    run('systemctl is-active suricata 2>/dev/null'),
-    run('suricata-update list-sources --no-reload 2>/dev/null | wc -l').catch(() => ({ ok: false, stdout: '0', stderr: '' })),
+  const [ver, pidRes] = await Promise.all([
+    run('suricata --build-info 2>/dev/null | head -1'),
+    run('pidof suricata 2>/dev/null'),
   ]);
 
-  const pidRes = await run('pidof suricata 2>/dev/null');
+  const running = hostServiceActive('suricata');
   const pid = pidRes.ok && pidRes.stdout ? parseInt(pidRes.stdout.split(' ')[0]) : null;
 
   const localRulesExist = await fileExists(SURICATA_RULES);
@@ -70,7 +63,7 @@ export async function getSuricataStatus(): Promise<{
 
   return {
     installed,
-    running: status.stdout === 'active',
+    running,
     version: ver.ok ? ver.stdout.split('\n')[0] : null,
     ruleCount: localRuleCount,
     pid,

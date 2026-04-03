@@ -14,6 +14,7 @@ import { createServer as createHttpServer } from 'http';
 import { createServer as createHttpsServer } from 'https';
 import fs from 'fs';
 import { attachWebSocket } from './ws.js';
+import { hostExec } from './host.js';
 import { db } from './db.js';
 import { users, userRoles, networkInterfaces, systemSettings, firewallRules, natRules, aliases, schedules, certificates, staticRoutes, vpnTunnels, configBackups, notificationChannels, notificationRules, auditLogs } from '../shared/schema.js';
 import { encryptConfig, decryptConfig, dispatchNotification, testChannel, startNotificationScheduler } from './notifications.js';
@@ -717,7 +718,6 @@ async function startWebServer() {
 
       const fs = await import('fs/promises');
       const path = await import('path');
-      const { execSync } = await import('child_process');
       const applied: string[] = [];
       const skipped: string[] = [];
 
@@ -747,7 +747,7 @@ async function startWebServer() {
         try {
           await fs.writeFile('/etc/ipsec.conf', ipsecConf, 'utf8');
           await fs.writeFile('/etc/ipsec.secrets', secrets, 'utf8');
-          try { execSync('ipsec reload', { timeout: 5000 }); } catch { /* daemon may not be running */ }
+          await hostExec('ipsec reload', { timeout: 5000 }); // ok if daemon not running
           applied.push('ipsec');
         } catch {
           skipped.push('ipsec (no write permission — run as root)');
@@ -772,7 +772,8 @@ async function startWebServer() {
         try {
           await fs.mkdir('/etc/wireguard', { recursive: true });
           await fs.writeFile(wgPath, wgConf, { encoding: 'utf8', mode: 0o600 });
-          try { execSync(`wg syncconf ${iface} <(wg-quick strip ${iface})`, { shell: '/bin/bash', timeout: 5000 }); } catch { /* interface may not exist yet */ }
+          // Live-reload config into running wg interface (no-op if interface doesn't exist yet)
+          await hostExec(`wg syncconf ${iface} <(wg-quick strip ${iface})`, { timeout: 5000 });
           applied.push(`wireguard:${iface}`);
         } catch {
           skipped.push(`wireguard:${iface} (no write permission — run as root)`);
