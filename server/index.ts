@@ -71,7 +71,37 @@ function maskSecret(value: string): string {
 
 async function startWebServer() {
   const app = express();
-  app.use(cors());
+
+  // ── CORS ────────────────────────────────────────
+  // In production TLS mode restrict to same-origin only (no cross-origin API).
+  // In dev mode allow all (Vite dev server runs on the same host/port via proxy).
+  const tlsCertFile = process.env.TLS_CERT_FILE;
+  const tlsKeyFile  = process.env.TLS_KEY_FILE;
+  const tlsEnabled  =
+    !isDev &&
+    !!tlsCertFile && !!tlsKeyFile &&
+    fs.existsSync(tlsCertFile!) && fs.existsSync(tlsKeyFile!);
+
+  app.use(cors(
+    tlsEnabled
+      ? { origin: false }            // same-origin only in production TLS
+      : { origin: true }             // allow all in dev/HTTP mode
+  ));
+
+  // ── Security headers ─────────────────────────────
+  app.use((_req, res, next) => {
+    // Always-on headers
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('X-XSS-Protection', '1; mode=block');
+    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+    // HTTPS-only: enforce HSTS for 1 year (incl. subdomains) — only when TLS
+    if (tlsEnabled) {
+      res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+    }
+    next();
+  });
+
   app.use(express.json({ limit: '10mb' }));
 
   // ── Health + system status ────────────────────────
@@ -907,35 +937,74 @@ async function startWebServer() {
   // HTTP / HTTPS + WebSocket server
   // ─────────────────────────────────────────────────
 
-  // Load TLS credentials from env (set by setup-ubuntu.sh in production).
-  // If both files exist and are readable, start an HTTPS server on PORT.
-  // Otherwise fall back to plain HTTP (dev / Replit environment).
-  const tlsCertFile = process.env.TLS_CERT_FILE;
-  const tlsKeyFile  = process.env.TLS_KEY_FILE;
-  const tlsEnabled  =
-    !isDev &&
-    !!tlsCertFile && !!tlsKeyFile &&
-    fs.existsSync(tlsCertFile) && fs.existsSync(tlsKeyFile);
+  // tlsEnabled / tlsCertFile / tlsKeyFile are already set in the CORS section above.
+  // This section creates the appropriate server instance.
 
   let httpsServer: ReturnType<typeof createHttpsServer> | null = null;
   const httpServer = createHttpServer(app);
 
   if (tlsEnabled) {
-    const tlsOptions = {
-      cert: fs.readFileSync(tlsCertFile!),
-      key:  fs.readFileSync(tlsKeyFile!),
-    };
-    httpsServer = createHttpsServer(tlsOptions, app);
-    // WebSocket rides on the HTTPS server in production TLS mode
-    attachWebSocket(httpsServer);
-    console.log('[TLS] Certificates loaded — starting HTTPS server');
-  } else {
-    // Attach WebSocket to plain HTTP server (dev or no-TLS production)
-    attachWebSocket(httpServer);
-    if (!isDev) {
-      console.warn('[TLS] TLS_CERT_FILE / TLS_KEY_FILE not found — running HTTP only');
+    // Load cert + key — if either fails, fall back gracefully to HTTP
+    const tlsCreds = (() => {
+      try {
+        return { cert: fs.readFileSync(tlsCertFile!), key: fs.readFileSync(tlsKeyFile!) };
+      } catch (err: any) {
+        console.error('[TLS] Cannot read certificate files:', err.message);
+        console.error('[TLS] Check TLS_CERT_FILE / TLS_KEY_FILE in .env — falling back to HTTP');
+        return null;
+      }
+    })();
+
+    if (tlsCreds) {
+      const tlsOptions = {
+        cert: tlsCreds.cert,
+        key:  tlsCreds.key,
+        // Enforce TLS 1.2+ — disables SSL 3.0/TLS 1.0/1.1 explicitly (Node 20
+        // defaults to TLSv1.2 but we state it explicitly for all Node builds)
+        minVersion: 'TLSv1.2' as const,
+        // Strong ECDHE/DHE + AES-GCM/CHACHA20 ciphers only (no RC4, 3DES, CBC-SHA)
+        // TLS 1.3 suites are always available and negotiated preferentially by Node.js
+        ciphers: [
+          'TLS_AES_256_GCM_SHA384',
+          'TLS_AES_128_GCM_SHA256',
+          'TLS_CHACHA20_POLY1305_SHA256',
+          'ECDHE-RSA-AES256-GCM-SHA384',
+          'ECDHE-RSA-AES128-GCM-SHA256',
+          'DHE-RSA-AES256-GCM-SHA384',
+          'DHE-RSA-AES128-GCM-SHA256',
+        ].join(':'),
+        honorCipherOrder: true,
+      };
+      httpsServer = createHttpsServer(tlsOptions, app);
+      attachWebSocket(httpsServer);
+      httpsServer.on('error', (err: NodeJS.ErrnoException) => {
+        if (err.code === 'EADDRINUSE') {
+          console.error(`[TLS] Port ${PORT} already in use — is another instance running?`);
+        } else {
+          console.error('[TLS] HTTPS server error:', err.message);
+        }
+        process.exit(1);
+      });
+      console.log('[TLS] Certificates loaded — HTTPS server ready (TLS 1.2+, strong ciphers)');
     }
   }
+
+  if (!httpsServer) {
+    // Plain HTTP — dev mode or TLS cert load failure
+    attachWebSocket(httpServer);
+    if (!isDev) {
+      console.warn('[TLS] TLS_CERT_FILE / TLS_KEY_FILE not configured — running plain HTTP');
+    }
+  }
+
+  httpServer.on('error', (err: NodeJS.ErrnoException) => {
+    if (err.code === 'EADDRINUSE') {
+      console.error(`[Server] Port already in use — is another instance running?`);
+    } else {
+      console.error('[Server] HTTP server error:', err.message);
+    }
+    process.exit(1);
+  });
 
   // ─────────────────────────────────────────────────
   // Frontend — Vite dev or static production build
@@ -966,8 +1035,9 @@ async function startWebServer() {
   // ─────────────────────────────────────────────────
   // Listen
   // ─────────────────────────────────────────────────
-  const activeServer = tlsEnabled ? httpsServer! : httpServer;
-  const protocol     = tlsEnabled ? 'https' : 'http';
+  // Use HTTPS server only if it was successfully created (cert files readable)
+  const activeServer = httpsServer ?? httpServer;
+  const protocol     = httpsServer ? 'https' : 'http';
 
   activeServer.listen(PORT, '0.0.0.0', () => {
     console.log(`[Server] Sonaro Gate backend running on port ${PORT} (${protocol.toUpperCase()})`);
@@ -1000,7 +1070,7 @@ async function startWebServer() {
 
   // In TLS mode also spin up a plain-HTTP redirect server on port 80
   // so that http://ip/ automatically redirects to https://ip:443/
-  if (tlsEnabled && PORT === 443) {
+  if (httpsServer && PORT === 443) {
     const httpRedirect = createHttpServer((_req, res) => {
       const host = (_req.headers.host ?? '').replace(/:.*$/, '');
       res.writeHead(301, { Location: `https://${host}/` });

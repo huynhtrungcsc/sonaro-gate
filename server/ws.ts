@@ -8,7 +8,8 @@
 
 import { WebSocketServer, WebSocket } from 'ws';
 import { IncomingMessage } from 'http';
-import { Server } from 'http';
+import type { Server as HttpServer }  from 'http';
+import type { Server as HttpsServer } from 'https';
 
 export interface WsPayload {
   event: string;
@@ -18,7 +19,8 @@ export interface WsPayload {
 
 let wss: WebSocketServer | null = null;
 
-export function attachWebSocket(httpServer: Server): WebSocketServer {
+// Accept both http.Server and https.Server — both emit 'upgrade' events.
+export function attachWebSocket(httpServer: HttpServer | HttpsServer): WebSocketServer {
   // Use noServer mode — we manually route /ws upgrades, leaving all
   // other upgrade events (e.g. Vite HMR) untouched on the httpServer.
   wss = new WebSocketServer({ noServer: true });

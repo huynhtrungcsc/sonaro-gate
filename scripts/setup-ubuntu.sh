@@ -316,6 +316,9 @@ fi
 
 cd "$INSTALL_DIR" || fail "Could not enter $INSTALL_DIR"
 
+# Generate a cryptographically strong JWT secret (96 hex chars = 48 bytes entropy)
+JWT_SECRET_VAL="$(openssl rand -hex 48)"
+
 # Write environment
 cat > "$INSTALL_DIR/.env" <<ENV
 DATABASE_URL=postgresql://$DB_USER:$DB_PASS@localhost:5432/$DB_NAME
@@ -326,6 +329,7 @@ ADMIN_PASSWORD=$ADMIN_PASS
 SONARO_INSTALL_DIR=$INSTALL_DIR
 TLS_CERT_FILE=$TLS_DIR/server.crt
 TLS_KEY_FILE=$TLS_DIR/server.key
+JWT_SECRET=$JWT_SECRET_VAL
 ENV
 chmod 600 "$INSTALL_DIR/.env"
 
