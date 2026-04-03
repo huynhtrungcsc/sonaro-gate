@@ -274,33 +274,42 @@ HOSTNAME_FQDN=$(hostname -f 2>/dev/null || hostname)
 # Build Subject Alternative Name list (IP + hostname)
 SAN="IP:${SERVER_IP},IP:127.0.0.1,DNS:${HOSTNAME_FQDN},DNS:localhost"
 
-# Generate a private CA (used only for this device)
-openssl req -x509 -newkey rsa:2048 -days 3650 -nodes \
+# Generate a private CA — RSA 4096 (128-bit security level, adequate for 10-year cert)
+# NIST SP 800-131A recommends >= 3072 bits for keys used beyond 2030.
+info "  Generating CA key (RSA 4096) — this takes a few seconds..."
+openssl req -x509 -newkey rsa:4096 -days 3650 -nodes \
   -keyout "$TLS_DIR/ca.key" \
   -out    "$TLS_DIR/ca.crt" \
   -subj   "/C=VN/O=Sonaro Gate/CN=Sonaro Gate Local CA" \
+  -addext "basicConstraints=critical,CA:true,pathlen:0" \
+  -addext "keyUsage=critical,keyCertSign,cRLSign" \
   >/dev/null 2>&1
 
-# Generate server private key + CSR
-openssl req -newkey rsa:2048 -nodes \
+# Generate server private key (RSA 4096) + CSR
+info "  Generating server key (RSA 4096)..."
+openssl req -newkey rsa:4096 -nodes \
   -keyout "$TLS_DIR/server.key" \
   -out    "$TLS_DIR/server.csr" \
   -subj   "/C=VN/O=Sonaro Gate/CN=${SERVER_IP}" \
   >/dev/null 2>&1
 
-# Sign the server cert with our local CA, including SANs
+# Sign the server cert with our local CA — with SANs and explicit extensions
 openssl x509 -req -days 3650 \
   -in      "$TLS_DIR/server.csr" \
   -CA      "$TLS_DIR/ca.crt" \
   -CAkey   "$TLS_DIR/ca.key" \
   -CAcreateserial \
   -out     "$TLS_DIR/server.crt" \
-  -extfile <(printf "subjectAltName=%s\nkeyUsage=digitalSignature,keyEncipherment\nextendedKeyUsage=serverAuth" "$SAN") \
+  -extfile <(printf "subjectAltName=%s\nbasicConstraints=CA:false\nkeyUsage=critical,digitalSignature,keyEncipherment\nextendedKeyUsage=serverAuth" "$SAN") \
   >/dev/null 2>&1
 
+# Bundle server cert + CA cert into a chain file.
+# TLS handshake sends the full chain so clients can verify without pre-installing the CA.
+cat "$TLS_DIR/server.crt" "$TLS_DIR/ca.crt" > "$TLS_DIR/server-chain.crt"
+
 chmod 600 "$TLS_DIR/server.key" "$TLS_DIR/ca.key"
-chmod 644 "$TLS_DIR/server.crt" "$TLS_DIR/ca.crt"
-ok "TLS certificate generated at $TLS_DIR (CA + server cert, 10-year validity)"
+chmod 644 "$TLS_DIR/server.crt" "$TLS_DIR/ca.crt" "$TLS_DIR/server-chain.crt"
+ok "TLS certificate generated (RSA 4096, CA-signed, 10-year, full chain bundled)"
 
 # ─── Step 10b: Install Sonaro Gate application ────────────────────────────────
 info "Installing Sonaro Gate application to $INSTALL_DIR..."
@@ -327,7 +336,7 @@ PORT=$LISTEN_PORT
 ADMIN_EMAIL=$ADMIN_EMAIL
 ADMIN_PASSWORD=$ADMIN_PASS
 SONARO_INSTALL_DIR=$INSTALL_DIR
-TLS_CERT_FILE=$TLS_DIR/server.crt
+TLS_CERT_FILE=$TLS_DIR/server-chain.crt
 TLS_KEY_FILE=$TLS_DIR/server.key
 JWT_SECRET=$JWT_SECRET_VAL
 ENV

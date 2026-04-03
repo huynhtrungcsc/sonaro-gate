@@ -1042,9 +1042,9 @@ async function startWebServer() {
   activeServer.listen(PORT, '0.0.0.0', () => {
     console.log(`[Server] Sonaro Gate backend running on port ${PORT} (${protocol.toUpperCase()})`);
     console.log(`[Server] Mode: ${isDev ? 'development' : 'production'}`);
-    if (tlsEnabled) {
-      console.log(`[Server] ✓  TLS enabled — data encrypted in transit`);
-      console.log(`[Server] ✓  Note: self-signed cert — browser will warn until CA cert is trusted`);
+    if (httpsServer) {
+      console.log(`[Server] ✓  TLS enabled — data encrypted in transit (TLS 1.2+)`);
+      console.log(`[Server] ✓  Self-signed cert — browser will warn until local CA is trusted`);
     }
 
     isRoot().then(async root => {
@@ -1073,8 +1073,19 @@ async function startWebServer() {
   if (httpsServer && PORT === 443) {
     const httpRedirect = createHttpServer((_req, res) => {
       const host = (_req.headers.host ?? '').replace(/:.*$/, '');
-      res.writeHead(301, { Location: `https://${host}/` });
+      res.writeHead(301, {
+        'Location': `https://${host}/`,
+        'X-Content-Type-Options': 'nosniff',
+      });
       res.end();
+    });
+    httpRedirect.on('error', (err: NodeJS.ErrnoException) => {
+      if (err.code === 'EADDRINUSE') {
+        console.warn('[Server] ⚠  Port 80 already in use — HTTP→HTTPS redirect skipped');
+      } else {
+        console.warn('[Server] ⚠  HTTP redirect server error:', err.message);
+      }
+      // Non-fatal: HTTPS on 443 still works, users can navigate directly to https://
     });
     httpRedirect.listen(80, '0.0.0.0', () => {
       console.log('[Server] ✓  HTTP→HTTPS redirect active on port 80');
