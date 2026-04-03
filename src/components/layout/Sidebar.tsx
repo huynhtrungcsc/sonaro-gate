@@ -378,8 +378,8 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
         <button
           onClick={onToggle}
           className={cn(
-            'w-full flex items-center gap-2 px-2 py-1.5 text-gray-400 hover:text-white hover:bg-[#2a3f54] rounded transition-colors text-[11px]',
-            collapsed && 'justify-center'
+            'inline-flex items-center gap-2 px-2 py-1.5 text-gray-400 hover:text-white hover:bg-[#2a3f54] rounded transition-colors text-[11px]',
+            collapsed && 'w-full justify-center'
           )}
         >
           {collapsed ? <ChevronsRight size={14} /> : <ChevronsLeft size={14} />}
