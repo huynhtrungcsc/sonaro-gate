@@ -270,7 +270,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
         </Link>
       )}
 
-      <nav className="flex-1 overflow-y-auto py-1">
+      <nav className="flex-1 overflow-y-auto py-1 [&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-[#2a3f54] [&::-webkit-scrollbar-thumb]:rounded-full">
         {navigation.map((section) => {
           const isExpanded = expandedSections.includes(section.title);
           const hasActiveItem = isSectionActive(section);
