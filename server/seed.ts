@@ -133,6 +133,20 @@ async function ensureIDSSignatures() {
   ]);
 }
 
+// Stale email addresses from previous project iterations that must be cleaned up
+const STALE_EMAILS = ['admin@aegis.local', 'admin@wallix.local'];
+
+async function cleanupStaleUsers() {
+  for (const email of STALE_EMAILS) {
+    const [stale] = await db.select({ id: users.id }).from(users).where(eq(users.email, email)).limit(1);
+    if (stale) {
+      await db.delete(userRoles).where(eq(userRoles.user_id, stale.id));
+      await db.delete(users).where(eq(users.id, stale.id));
+      console.log(`[Seed] Removed stale account: ${email}`);
+    }
+  }
+}
+
 export async function seedDatabase() {
   try {
     await ensureSystemSettings();
@@ -140,6 +154,7 @@ export async function seedDatabase() {
     await ensureServices();
     await ensureSchedules();
     await ensureIDSSignatures();
+    await cleanupStaleUsers();
 
     const existing = await db
       .select()
@@ -148,14 +163,21 @@ export async function seedDatabase() {
       .limit(1);
 
     if (existing.length > 0) {
-      console.log('[Seed] Admin user already exists, skipping user seed.');
+      console.log('[Seed] Default admin account exists — skipping user seed.');
       return;
     }
 
-    console.log('[Seed] Creating initial admin user...');
+    // Role choice: super_admin (not admin).
+    // Reason: this is the bootstrap account created on a fresh install when no
+    // other users exist. It must have super_admin so it can create additional
+    // admin/operator/auditor accounts via the UI.  Once initial setup is done,
+    // operators should log in with least-privilege accounts (admin/operator).
+    // The super_admin account is analogous to FortiGate's built-in "admin" —
+    // always full-access, used for emergency recovery and user management.
+    console.log('[Seed] Creating initial super-admin account...');
     const [admin] = await db.insert(users).values({
       email: 'admin@sonaro.local',
-      full_name: 'Super Admin',
+      full_name: 'System Administrator',
       password_hash: hashPassword('Admin123!'),
     }).returning();
 
@@ -163,6 +185,7 @@ export async function seedDatabase() {
 
     console.log('[Seed] Database seeded successfully.');
     console.log('[Seed] Default login: admin@sonaro.local / Admin123!');
+    console.log('[Seed] Role: super_admin (full access — change after first login)');
   } catch (err: any) {
     console.error('[Seed] Error during seeding:', err);
   }

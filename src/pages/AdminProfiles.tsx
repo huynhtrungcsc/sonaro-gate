@@ -70,10 +70,10 @@ const roleColors: Record<string, string> = {
 };
 
 const roleDescriptions: Record<string, string> = {
-  super_admin: 'Full system access including user management and security settings',
-  admin: 'System configuration, firewall management, and monitoring',
-  operator: 'Can configure firewall, VPN, routing and view logs',
-  auditor: 'Read-only access to logs, reports and audit trails',
+  super_admin: 'Bootstrap/recovery account — full system access, user management, security settings, license & HA. Use sparingly; create Admin accounts for daily operations.',
+  admin: 'Day-to-day operations — firewall policy, VPN, routing, system settings, monitoring. Cannot manage other admins or change security-critical settings.',
+  operator: 'Limited configuration — firewall rules, VPN tunnels, routing entries, and log viewing. Cannot change system settings or manage users.',
+  auditor: 'Read-only — access to logs, reports and audit trails only. Ideal for compliance and external review.',
 };
 
 const actionColors: Record<string, string> = {
@@ -319,13 +319,20 @@ const AdminProfiles = () => {
                       <input type="radio" name="user-select" checked={selectedUserId === u.userId}
                         onChange={() => setSelectedUserId(u.userId)} className="accent-[hsl(142,70%,35%)]" />
                     </td>
-                    <td className="font-medium text-[#333]">{u.fullName || '—'}</td>
+                    <td className="font-medium text-[#333]">
+                      <div className="flex items-center gap-1.5">
+                        {u.fullName || '—'}
+                        {u.email === 'admin@sonaro.local' && (
+                          <span className="text-[9px] bg-[#e8f0fe] text-[#3367d6] border border-[#b3c8f5] px-1 py-0 rounded font-normal">default</span>
+                        )}
+                      </div>
+                    </td>
                     <td className="text-[#666]">{u.email || '—'}</td>
                     <td>
                       <div className="flex items-center gap-1 flex-wrap">
                         {u.roles.map(role => (
                           <span key={role} className={cn("forti-tag", roleColors[role])}>
-                            {role.toUpperCase().replace('_', ' ')}
+                            {role === 'super_admin' ? 'SUPER ADMIN' : role.toUpperCase().replace('_', ' ')}
                           </span>
                         ))}
                       </div>
