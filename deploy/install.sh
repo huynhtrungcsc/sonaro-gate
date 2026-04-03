@@ -168,16 +168,18 @@ system_check() {
         fi
     done
 
-    # Software
+    # Software — wireguard binary is `wg`, not `wireguard`
     echo ""
     echo -e "  ${BOLD}Installed software${RESET}"
-    for tool in docker git curl openssl node psql suricata wireguard; do
+    local -A TOOL_LABEL=( [wg]="wireguard" )
+    for tool in docker git curl openssl node psql suricata wg; do
+        local label="${TOOL_LABEL[$tool]:-$tool}"
         if command -v "$tool" &>/dev/null; then
             local ver
             ver=$("$tool" --version 2>/dev/null | head -1 | cut -c1-40 || echo "installed")
-            echo -e "    ${GREEN}✓${RESET}  $(printf '%-16s' "$tool")  ${DIM}${ver}${RESET}"
+            echo -e "    ${GREEN}✓${RESET}  $(printf '%-16s' "$label")  ${DIM}${ver}${RESET}"
         else
-            echo -e "    ${DIM}✗  $(printf '%-16s' "$tool")  not installed${RESET}"
+            echo -e "    ${DIM}✗  $(printf '%-16s' "$label")  not installed${RESET}"
         fi
     done
     echo ""
@@ -294,6 +296,10 @@ _do_cleanup() {
     # Remove install directory
     if [[ -d "${INSTALL_DIR}" ]]; then
         info "Removing ${INSTALL_DIR}..."
+        # cd away first — if the caller's CWD is inside INSTALL_DIR the shell
+        # loses its working directory after rm -rf, breaking subsequent commands
+        # (e.g. git clone fails with "Unable to read current working directory").
+        cd /tmp || cd /
         rm -rf "${INSTALL_DIR}"
     fi
 
