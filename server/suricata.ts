@@ -47,8 +47,8 @@ export async function getSuricataStatus(): Promise<{
   }
 
   const [ver, pidRes] = await Promise.all([
-    run('suricata --build-info 2>/dev/null | head -1'),
-    run('pidof suricata 2>/dev/null'),
+    run('suricata --build-info 2>/dev/null | head -1', { timeout: 5000 }),
+    run('pidof suricata 2>/dev/null', { timeout: 5000 }),
   ]);
 
   const running = hostServiceActive('suricata');

@@ -14,7 +14,7 @@ import { createServer as createHttpServer } from 'http';
 import { createServer as createHttpsServer } from 'https';
 import fs from 'fs';
 import { attachWebSocket } from './ws.js';
-import { hostExec } from './host.js';
+import { hostExec, hostBinaryExists, hostServiceActive } from './host.js';
 import { db } from './db.js';
 import { users, userRoles, networkInterfaces, systemSettings, firewallRules, natRules, aliases, schedules, certificates, staticRoutes, vpnTunnels, configBackups, notificationChannels, notificationRules, auditLogs } from '../shared/schema.js';
 import { encryptConfig, decryptConfig, dispatchNotification, testChannel, startNotificationScheduler } from './notifications.js';
@@ -670,6 +670,19 @@ async function startWebServer() {
 
   app.post('/api/system/ips/update-signatures', requireAuth, async (_req, res) => {
     res.json(await updateSignatures());
+  });
+
+  app.get('/api/system/vpn/status', requireAuth, (_req, res) => {
+    res.json({
+      wireguard: {
+        installed: hostBinaryExists('wg') || hostBinaryExists('wg-quick'),
+        running: hostServiceActive('wg-quick@wg0'),
+      },
+      ipsec: {
+        installed: hostBinaryExists('ipsec') || hostBinaryExists('swanctl'),
+        running: hostServiceActive('strongswan') || hostServiceActive('ipsec'),
+      },
+    });
   });
 
   app.post('/api/system/ips/rules', requireAuth, async (req, res) => {

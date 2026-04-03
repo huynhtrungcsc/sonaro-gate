@@ -20,7 +20,8 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import { useVPNTunnels } from '@/hooks/useDbData';
 import { vpnTunnelsApi } from '@/lib/api';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { getStoredToken } from '@/lib/postgrest';
 
 // ── Config helpers ────────────────────────────────────────────────
 function parseConfig(tunnel: any): any {
@@ -132,6 +133,21 @@ const VPN = () => {
 
   const queryClient = useQueryClient();
   const { data: tunnels = [], isLoading } = useVPNTunnels();
+
+  const { data: vpnStatus } = useQuery<{
+    wireguard: { installed: boolean; running: boolean };
+    ipsec: { installed: boolean; running: boolean };
+  }>({
+    queryKey: ['/api/system/vpn/status'],
+    queryFn: async () => {
+      const res = await fetch('/api/system/vpn/status', {
+        headers: { Authorization: `Bearer ${getStoredToken() ?? ''}` },
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return res.json();
+    },
+    refetchInterval: 30_000,
+  });
 
   // Sync tab when navigating directly via sidebar
   useEffect(() => {
@@ -429,16 +445,33 @@ const VPN = () => {
             </DndContext>
             <div className="text-[11px] text-[#666] mt-2 px-1">{visibleTunnels.length} tunnel(s)</div>
 
-            {/* Ubuntu install hint */}
-            <div className="mt-3 p-3 bg-[#fff8e1] border border-[#ffe082] text-[10px] text-[#666] flex items-start gap-2">
-              <Info size={12} className="text-[#f57c00] mt-0.5 shrink-0" />
-              <div>
-                <strong className="text-[#444]">Ubuntu 24.04 LTS deployment:</strong>
-                {activeTab === 'wireguard'
-                  ? ' Install WireGuard: apt-get install wireguard wireguard-tools — then apply config with wg-quick up wg0'
-                  : ' Install strongSwan: apt-get install strongswan strongswan-pki — configuration written to /etc/ipsec.conf and /etc/ipsec.secrets on Apply'}
-              </div>
-            </div>
+            {/* VPN Engine Status Bar */}
+            {activeTab !== 'monitor' && (() => {
+              const st = activeTab === 'wireguard' ? vpnStatus?.wireguard : vpnStatus?.ipsec;
+              const label = activeTab === 'wireguard' ? 'WIREGUARD ENGINE' : 'IPSEC ENGINE';
+              const installCmd = activeTab === 'wireguard'
+                ? 'apt-get install wireguard wireguard-tools'
+                : 'apt-get install strongswan strongswan-pki';
+              return (
+                <div className="mt-3 forti-toolbar" style={{ background: '#f5f6f8', border: '1px solid #e0e0e0', gap: 16, padding: '4px 10px' }}>
+                  <span className="text-[11px] font-semibold text-[#444]" style={{ letterSpacing: 1 }}>{label}</span>
+                  <span className="flex items-center gap-1.5 text-[11px]">
+                    <span className={cn('inline-block w-1.5 h-1.5 rounded-full',
+                      st == null ? 'bg-[#ccc]' : st.installed ? (st.running ? 'bg-green-500' : 'bg-amber-400') : 'bg-[#bbb]')} />
+                    {st == null
+                      ? <span className="text-[#999]">Checking…</span>
+                      : !st.installed
+                        ? <span className="text-[#c00]">Not installed</span>
+                        : st.running
+                          ? <span className="text-green-700">Running</span>
+                          : <span className="text-amber-700">Installed · Stopped</span>}
+                  </span>
+                  {st != null && !st.installed && (
+                    <span className="text-[10px] text-amber-700 font-medium">Install: {installCmd}</span>
+                  )}
+                </div>
+              );
+            })()}
           </div>
         )}
 

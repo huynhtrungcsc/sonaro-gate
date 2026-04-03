@@ -140,7 +140,7 @@ export function createCrudRouter(): Router {
         if (v === null || v === undefined) return 'NULL';
         if (typeof v === 'boolean') return v ? 'TRUE' : 'FALSE';
         if (typeof v === 'number') return String(v);
-        if (Array.isArray(v)) return `ARRAY[${v.map(x => `'${String(x).replace(/'/g, "''")}'`).join(',')}]`;
+        if (Array.isArray(v)) return `ARRAY[${v.map(x => typeof x === 'number' ? String(x) : `'${String(x).replace(/'/g, "''")}'`).join(',')}]`;
         return `'${String(v).replace(/'/g, "''")}'`;
       }).join(', ');
 
@@ -171,7 +171,7 @@ export function createCrudRouter(): Router {
         if (v === null || v === undefined) return `"${k}" = NULL`;
         if (typeof v === 'boolean') return `"${k}" = ${v ? 'TRUE' : 'FALSE'}`;
         if (typeof v === 'number') return `"${k}" = ${v}`;
-        if (Array.isArray(v)) return `"${k}" = ARRAY[${v.map(x => `'${String(x).replace(/'/g, "''")}'`).join(',')}]`;
+        if (Array.isArray(v)) return `"${k}" = ARRAY[${v.map(x => typeof x === 'number' ? String(x) : `'${String(x).replace(/'/g, "''")}'`).join(',')}]`;
         return `"${k}" = '${String(v).replace(/'/g, "''")}'`;
       }).join(', ');
 
