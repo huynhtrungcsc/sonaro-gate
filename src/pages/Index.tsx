@@ -129,36 +129,38 @@ const Dashboard = () => {
           <Widget title="Feature Status" loading={settings.isLoading}>
             <div className="space-y-1">
               {[
-                { name: 'Base System',    key: 'license_vm_status' },
-                { name: 'Support',        key: 'license_support_status' },
-                { name: 'IDS & IPS',      key: 'license_ids_status' },
-                { name: 'AntiVirus',      key: 'license_av_status' },
-                { name: 'Web Filtering',  key: 'license_webfilter_status' },
+                { name: 'Sonaro Gate',   sub: 'Core application',         key: 'license_vm_status' },
+                { name: 'Support',       sub: 'Open-source community',     key: 'license_support_status' },
+                { name: 'IDS & IPS',     sub: 'Suricata engine',           key: 'license_ids_status' },
+                { name: 'Web Filtering', sub: 'DNS filter via dnsmasq',    key: 'license_webfilter_status' },
               ].map(lic => {
                 const status = getSetting(lic.key, '—');
                 const lc = status.toLowerCase();
                 const color =
-                  lc === 'valid'                 ? '#4caf50' :
-                  lc === 'community'             ? '#1976d2' :
-                  lc === 'installed (inactive)'  ? '#f59e0b' :
-                  '#e53935';
-                const icon =
-                  lc === 'valid'                 ? '●' :
-                  lc === 'community'             ? '●' :
-                  lc === 'installed (inactive)'  ? '◑' :
+                  lc === 'valid'                ? '#4caf50' :
+                  lc === 'community'            ? '#1976d2' :
+                  lc === 'installed (inactive)' ? '#f59e0b' :
+                  '#999';
+                const dot =
+                  lc === 'valid'                ? '●' :
+                  lc === 'community'            ? '●' :
+                  lc === 'installed (inactive)' ? '◑' :
                   '○';
                 return (
-                  <div key={lic.key} className="flex items-center justify-between text-[11px] py-0.5">
-                    <span className="text-[#666]">{lic.name}</span>
-                    <span className="inline-flex items-center gap-1 font-medium" style={{ color }}>
-                      <span style={{ fontSize: 8 }}>{icon}</span> {status}
+                  <div key={lic.key} className="flex items-start justify-between text-[11px] py-0.5 gap-2">
+                    <div className="min-w-0">
+                      <div className="text-[#333] font-medium leading-tight">{lic.name}</div>
+                      <div className="text-[9px] text-[#aaa] leading-tight">{lic.sub}</div>
+                    </div>
+                    <span className="inline-flex items-center gap-1 font-medium shrink-0 mt-0.5" style={{ color }}>
+                      <span style={{ fontSize: 8 }}>{dot}</span> {status}
                     </span>
                   </div>
                 );
               })}
             </div>
-            <div className="mt-2 pt-1.5 border-t border-[#eee] text-[9px] text-[#aaa]">
-              Detected on boot · Open-source components
+            <div className="mt-2 pt-1.5 border-t border-[#eee] text-[9px] text-[#bbb]">
+              Detected on boot
             </div>
           </Widget>
         </div>

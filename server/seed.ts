@@ -87,11 +87,6 @@ async function detectAndUpdateLicenseStatus(): Promise<void> {
   const suricataActive    = suricataInstalled && serviceActive('suricata');
   const idsStatus         = suricataActive ? 'Valid' : suricataInstalled ? 'Installed (inactive)' : 'Not Installed';
 
-  // AntiVirus — ClamAV daemon (clamd) or at least clamscan must exist
-  const clamavInstalled = binaryExists('clamd') || binaryExists('clamscan');
-  const clamavActive    = clamavInstalled && (serviceActive('clamav-daemon') || serviceActive('clamd'));
-  const avStatus        = clamavActive ? 'Valid' : clamavInstalled ? 'Installed (inactive)' : 'Not Installed';
-
   // Web Filtering — dnsmasq must be installed and active (powers DNS filtering)
   const dnsmasqInstalled = binaryExists('dnsmasq');
   const dnsmasqActive    = dnsmasqInstalled && serviceActive('dnsmasq');
@@ -104,7 +99,6 @@ async function detectAndUpdateLicenseStatus(): Promise<void> {
     { key: 'license_vm_status',        value: vmStatus      },
     { key: 'license_support_status',   value: supportStatus },
     { key: 'license_ids_status',       value: idsStatus     },
-    { key: 'license_av_status',        value: avStatus      },
     { key: 'license_webfilter_status', value: wfStatus      },
   ];
 
@@ -115,7 +109,7 @@ async function detectAndUpdateLicenseStatus(): Promise<void> {
       .onConflictDoUpdate({ target: systemSettings.key, set: { value } });
   }
 
-  console.log(`[Seed] License status: VM=${vmStatus}, IDS=${idsStatus}, AV=${avStatus}, WF=${wfStatus}, Support=${supportStatus}`);
+  console.log(`[Seed] Feature status: Core=Valid, IDS/IPS=${idsStatus}, WebFilter=${wfStatus}, Support=${supportStatus}`);
 }
 
 async function ensureDnsDefaults() {
