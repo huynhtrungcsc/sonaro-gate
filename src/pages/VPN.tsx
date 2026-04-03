@@ -446,7 +446,7 @@ const VPN = () => {
             <div className="text-[11px] text-[#666] mt-2 px-1">{visibleTunnels.length} tunnel(s)</div>
 
             {/* VPN Engine Status Bar */}
-            {activeTab !== 'monitor' && (() => {
+            {(() => {
               const st = activeTab === 'wireguard' ? vpnStatus?.wireguard : vpnStatus?.ipsec;
               const label = activeTab === 'wireguard' ? 'WIREGUARD ENGINE' : 'IPSEC ENGINE';
               const installCmd = activeTab === 'wireguard'
