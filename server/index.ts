@@ -11,6 +11,8 @@ import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { createServer as createHttpServer } from 'http';
+import { createServer as createHttpsServer } from 'https';
+import fs from 'fs';
 import { attachWebSocket } from './ws.js';
 import { db } from './db.js';
 import { users, userRoles, networkInterfaces, systemSettings, firewallRules, natRules, aliases, schedules, certificates, staticRoutes, vpnTunnels, configBackups, notificationChannels, notificationRules, auditLogs } from '../shared/schema.js';
@@ -902,12 +904,38 @@ async function startWebServer() {
   app.use('/api', createCrudRouter());
 
   // ─────────────────────────────────────────────────
-  // HTTP + WebSocket server
+  // HTTP / HTTPS + WebSocket server
   // ─────────────────────────────────────────────────
+
+  // Load TLS credentials from env (set by setup-ubuntu.sh in production).
+  // If both files exist and are readable, start an HTTPS server on PORT.
+  // Otherwise fall back to plain HTTP (dev / Replit environment).
+  const tlsCertFile = process.env.TLS_CERT_FILE;
+  const tlsKeyFile  = process.env.TLS_KEY_FILE;
+  const tlsEnabled  =
+    !isDev &&
+    !!tlsCertFile && !!tlsKeyFile &&
+    fs.existsSync(tlsCertFile) && fs.existsSync(tlsKeyFile);
+
+  let httpsServer: ReturnType<typeof createHttpsServer> | null = null;
   const httpServer = createHttpServer(app);
 
-  // Attach our /ws WebSocket server (noServer mode — safe with Vite HMR)
-  attachWebSocket(httpServer);
+  if (tlsEnabled) {
+    const tlsOptions = {
+      cert: fs.readFileSync(tlsCertFile!),
+      key:  fs.readFileSync(tlsKeyFile!),
+    };
+    httpsServer = createHttpsServer(tlsOptions, app);
+    // WebSocket rides on the HTTPS server in production TLS mode
+    attachWebSocket(httpsServer);
+    console.log('[TLS] Certificates loaded — starting HTTPS server');
+  } else {
+    // Attach WebSocket to plain HTTP server (dev or no-TLS production)
+    attachWebSocket(httpServer);
+    if (!isDev) {
+      console.warn('[TLS] TLS_CERT_FILE / TLS_KEY_FILE not found — running HTTP only');
+    }
+  }
 
   // ─────────────────────────────────────────────────
   // Frontend — Vite dev or static production build
@@ -938,9 +966,16 @@ async function startWebServer() {
   // ─────────────────────────────────────────────────
   // Listen
   // ─────────────────────────────────────────────────
-  httpServer.listen(PORT, '0.0.0.0', () => {
-    console.log(`[Server] Sonaro Gate backend running on port ${PORT}`);
+  const activeServer = tlsEnabled ? httpsServer! : httpServer;
+  const protocol     = tlsEnabled ? 'https' : 'http';
+
+  activeServer.listen(PORT, '0.0.0.0', () => {
+    console.log(`[Server] Sonaro Gate backend running on port ${PORT} (${protocol.toUpperCase()})`);
     console.log(`[Server] Mode: ${isDev ? 'development' : 'production'}`);
+    if (tlsEnabled) {
+      console.log(`[Server] ✓  TLS enabled — data encrypted in transit`);
+      console.log(`[Server] ✓  Note: self-signed cert — browser will warn until CA cert is trusted`);
+    }
 
     isRoot().then(async root => {
       const fwd = await getIpForwardingStatus();
@@ -958,10 +993,23 @@ async function startWebServer() {
       .then(rows => {
         const lanIp = rows[0]?.value;
         if (lanIp) {
-          console.log(`[Server] ✓  Web UI: http://${lanIp}:${PORT}`);
+          console.log(`[Server] ✓  Web UI: ${protocol}://${lanIp}:${PORT}`);
         }
       }).catch(() => {});
   });
+
+  // In TLS mode also spin up a plain-HTTP redirect server on port 80
+  // so that http://ip/ automatically redirects to https://ip:443/
+  if (tlsEnabled && PORT === 443) {
+    const httpRedirect = createHttpServer((_req, res) => {
+      const host = (_req.headers.host ?? '').replace(/:.*$/, '');
+      res.writeHead(301, { Location: `https://${host}/` });
+      res.end();
+    });
+    httpRedirect.listen(80, '0.0.0.0', () => {
+      console.log('[Server] ✓  HTTP→HTTPS redirect active on port 80');
+    });
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────

@@ -23,6 +23,7 @@ ADMIN_EMAIL="${ADMIN_EMAIL:-admin@sonaro.local}"
 ADMIN_PASS="${ADMIN_PASS:-Admin123!}"
 SURICATA_IFACE="${SURICATA_IFACE:-$(ip route | awk '/^default/{print $5; exit}')}"
 LISTEN_PORT="${LISTEN_PORT:-443}"
+TLS_DIR="${TLS_DIR:-/opt/sonaro/tls}"
 ENABLE_SURICATA="${ENABLE_SURICATA:-yes}"
 ENABLE_WIREGUARD="${ENABLE_WIREGUARD:-yes}"
 ENABLE_OPENVPN="${ENABLE_OPENVPN:-yes}"
@@ -262,7 +263,46 @@ su -c "psql -tc \"SELECT 1 FROM pg_database WHERE datname='$DB_NAME'\" | grep -q
 su -c "psql -c \"ALTER USER $DB_USER WITH PASSWORD '$DB_PASS';\"" postgres 2>/dev/null || true
 ok "PostgreSQL database '$DB_NAME' ready"
 
-# ─── Step 10: Install Sonaro Gate application ─────────────────────────────────
+# ─── Step 10: TLS certificate generation ─────────────────────────────────────
+info "Generating TLS certificate for HTTPS..."
+mkdir -p "$TLS_DIR"
+chmod 700 "$TLS_DIR"
+
+SERVER_IP=$(hostname -I | awk '{print $1}')
+HOSTNAME_FQDN=$(hostname -f 2>/dev/null || hostname)
+
+# Build Subject Alternative Name list (IP + hostname)
+SAN="IP:${SERVER_IP},IP:127.0.0.1,DNS:${HOSTNAME_FQDN},DNS:localhost"
+
+# Generate a private CA (used only for this device)
+openssl req -x509 -newkey rsa:2048 -days 3650 -nodes \
+  -keyout "$TLS_DIR/ca.key" \
+  -out    "$TLS_DIR/ca.crt" \
+  -subj   "/C=VN/O=Sonaro Gate/CN=Sonaro Gate Local CA" \
+  >/dev/null 2>&1
+
+# Generate server private key + CSR
+openssl req -newkey rsa:2048 -nodes \
+  -keyout "$TLS_DIR/server.key" \
+  -out    "$TLS_DIR/server.csr" \
+  -subj   "/C=VN/O=Sonaro Gate/CN=${SERVER_IP}" \
+  >/dev/null 2>&1
+
+# Sign the server cert with our local CA, including SANs
+openssl x509 -req -days 3650 \
+  -in      "$TLS_DIR/server.csr" \
+  -CA      "$TLS_DIR/ca.crt" \
+  -CAkey   "$TLS_DIR/ca.key" \
+  -CAcreateserial \
+  -out     "$TLS_DIR/server.crt" \
+  -extfile <(printf "subjectAltName=%s\nkeyUsage=digitalSignature,keyEncipherment\nextendedKeyUsage=serverAuth" "$SAN") \
+  >/dev/null 2>&1
+
+chmod 600 "$TLS_DIR/server.key" "$TLS_DIR/ca.key"
+chmod 644 "$TLS_DIR/server.crt" "$TLS_DIR/ca.crt"
+ok "TLS certificate generated at $TLS_DIR (CA + server cert, 10-year validity)"
+
+# ─── Step 10b: Install Sonaro Gate application ────────────────────────────────
 info "Installing Sonaro Gate application to $INSTALL_DIR..."
 mkdir -p "$INSTALL_DIR"
 
@@ -284,6 +324,8 @@ PORT=$LISTEN_PORT
 ADMIN_EMAIL=$ADMIN_EMAIL
 ADMIN_PASSWORD=$ADMIN_PASS
 SONARO_INSTALL_DIR=$INSTALL_DIR
+TLS_CERT_FILE=$TLS_DIR/server.crt
+TLS_KEY_FILE=$TLS_DIR/server.key
 ENV
 chmod 600 "$INSTALL_DIR/.env"
 
@@ -329,14 +371,21 @@ systemctl daemon-reload
 systemctl enable sonaro-gate
 ok "sonaro-gate.service created and enabled"
 
-# ─── Step 12: Firewall — allow management port ────────────────────────────────
+# ─── Step 12: Firewall — allow management ports ───────────────────────────────
 info "Configuring iptables to allow management access..."
+# HTTPS management port (443 by default)
 iptables -C INPUT -p tcp --dport "$LISTEN_PORT" -j ACCEPT 2>/dev/null || \
   iptables -A INPUT -p tcp --dport "$LISTEN_PORT" -j ACCEPT
+# HTTP → HTTPS redirect port (80) — only needed when LISTEN_PORT=443
+if [[ "$LISTEN_PORT" == "443" ]]; then
+  iptables -C INPUT -p tcp --dport 80 -j ACCEPT 2>/dev/null || \
+    iptables -A INPUT -p tcp --dport 80 -j ACCEPT
+fi
+# PostgreSQL (local only)
 iptables -C INPUT -p tcp --dport 5432 -s 127.0.0.1 -j ACCEPT 2>/dev/null || \
   iptables -A INPUT -p tcp --dport 5432 -s 127.0.0.1 -j ACCEPT
 netfilter-persistent save 2>/dev/null || true
-ok "Firewall rules set"
+ok "Firewall rules set (ports: 80, $LISTEN_PORT)"
 
 # ─── Step 13: Start services ─────────────────────────────────────────────────
 info "Starting Sonaro Gate..."
@@ -350,7 +399,7 @@ echo "╚═══════════════════════�
 echo ""
 ok "Sonaro Gate is installed at $INSTALL_DIR"
 echo ""
-echo -e "  ${GREEN}Web UI:${NC}      http://$(hostname -I | awk '{print $1}'):$LISTEN_PORT"
+echo -e "  ${GREEN}Web UI:${NC}      https://$(hostname -I | awk '{print $1}')"
 echo -e "  ${GREEN}Admin login:${NC} $ADMIN_EMAIL"
 echo -e "  ${GREEN}Admin pass:${NC}  $ADMIN_PASS"
 echo ""
@@ -360,12 +409,27 @@ echo "  Services installed:"
 [[ "$ENABLE_OPENVPN" == "yes" ]]   && echo "    ✔ OpenVPN       — systemctl start openvpn@server"
 [[ "$ENABLE_DNSMASQ" == "yes" ]]   && echo "    ✔ dnsmasq DHCP  — /etc/dnsmasq.d/sonaro.conf"
 echo "    ✔ PostgreSQL    — database: $DB_NAME"
-echo "    ✔ iptables      — persistent via netfilter-persistent"
+echo "    ✔ iptables      — ports 80 (redirect) + 443 (HTTPS) open"
+echo ""
+echo -e "  ${YELLOW}HTTPS / Certificate notice:${NC}"
+echo "    A self-signed certificate was generated for this device."
+echo "    Browsers will show a security warning the first time."
+echo "    To suppress the warning, install the local CA cert in your browser:"
+echo ""
+echo -e "    ${BLUE}CA cert location:${NC} $TLS_DIR/ca.crt"
+echo ""
+echo "    → Chrome/Edge : Settings → Privacy → Manage certificates → Authorities → Import ca.crt"
+echo "    → Firefox     : Settings → Privacy → View Certificates → Authorities → Import ca.crt"
+echo "    → Ubuntu/curl : sudo cp $TLS_DIR/ca.crt /usr/local/share/ca-certificates/sonaro-gate.crt"
+echo "                    sudo update-ca-certificates"
+echo ""
+echo "    Data is fully encrypted with TLS regardless of the browser warning."
 echo ""
 echo "  Useful commands:"
-echo "    journalctl -u sonaro-gate -f     # live app logs"
-echo "    journalctl -u suricata -f        # IPS logs"
+echo "    journalctl -u sonaro-gate -f        # live app logs"
+echo "    journalctl -u suricata -f           # IPS logs"
 echo "    tail -f /var/log/suricata/fast.log  # IPS alerts"
+echo "    openssl x509 -in $TLS_DIR/server.crt -noout -text  # inspect cert"
 echo ""
 echo "  DB credentials saved to $INSTALL_DIR/.env (chmod 600)"
 echo ""
