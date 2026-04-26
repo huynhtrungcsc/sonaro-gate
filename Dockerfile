@@ -36,6 +36,10 @@ RUN npm run build
 # Generate Drizzle SQL migration files from schema (no live DB needed)
 RUN DATABASE_URL=postgresql://localhost/dummy npx drizzle-kit generate
 
+# Strip dev dependencies so the trimmed node_modules can be copied to production
+# This avoids running `npm ci` (which requires network access) in the runtime stage.
+RUN npm prune --omit=dev
+
 
 # ── Stage 2: Ubuntu 24.04 LTS runtime ────────────────────────────────────────
 # Ubuntu 24.04 is required for native netplan support.
@@ -46,7 +50,7 @@ FROM ubuntu:24.04 AS production
 # Prevent interactive apt prompts
 ENV DEBIAN_FRONTEND=noninteractive
 
-# ── System packages + Node.js ─────────────────────────────────────────────────
+# ── System packages ───────────────────────────────────────────────────────────
 # iproute2          : ip addr, ip route, ip link  (also used by agent.ts)
 # iptables          : iptables / ip6tables  (nftables-backed + legacy)
 # ipset             : ipset for dynamic address sets
@@ -57,13 +61,12 @@ ENV DEBIAN_FRONTEND=noninteractive
 # curl wget         : health check + external connectivity tests
 # procps            : pgrep / ps — used to detect running dhclient processes
 # ca-certificates   : TLS bundle for outbound HTTPS calls
-# nodejs npm        : Node.js runtime — Ubuntu 24.04 ships Node 18 LTS which
-#                     satisfies tsx ≥ 18 requirement; avoids external curl deps
+# libstdc++6        : C++ runtime needed by some native Node.js addons
 #
-# NOTE: Do NOT use NodeSource (nodesource.com/setup_20.x) here. That script
-# requires an outbound curl during the Docker build layer which fails on
-# air-gapped or rate-limited hosts. The Ubuntu 24.04 built-in Node.js package
-# is sufficient and requires no external network beyond apt mirrors.
+# Node.js is NOT installed from apt — Ubuntu 24.04 ships Node 18 which
+# is incompatible with @noble/hashes@2.0.1 (requires >=20.19.0).
+# Instead, the Node 20 binary is copied from the builder stage so no
+# external network call is required during this layer.
 RUN apt-get update -qq && apt-get install -y --no-install-recommends \
     iproute2 \
     iptables \
@@ -76,19 +79,21 @@ RUN apt-get update -qq && apt-get install -y --no-install-recommends \
     wget \
     procps \
     ca-certificates \
-    nodejs \
-    npm \
+    libstdc++6 \
     && rm -rf /var/lib/apt/lists/*
+
+# ── Node.js 20 runtime — copied from builder, no network required ─────────────
+COPY --from=builder /usr/local/bin/node   /usr/local/bin/node
+COPY --from=builder /usr/local/bin/npm    /usr/local/bin/npm
+COPY --from=builder /usr/local/bin/npx    /usr/local/bin/npx
+COPY --from=builder /usr/local/lib/node_modules /usr/local/lib/node_modules
 
 WORKDIR /app
 
-# ── Production Node dependencies ──────────────────────────────────────────────
-COPY package.json package-lock.json ./
-RUN npm config set fetch-retry-mintimeout 20000 \
-    && npm config set fetch-retry-maxtimeout 120000 \
-    && npm config set fetch-retries 5 \
-    && npm config set maxsockets 5 \
-    && npm ci --omit=dev --ignore-scripts
+# ── Production Node dependencies — pre-built and pruned in builder ────────────
+# Copying from builder avoids running `npm ci` here (requires network access).
+COPY --from=builder /build/node_modules ./node_modules
+COPY package.json ./
 
 # ── Application source (server, shared) ───────────────────────────────────────
 COPY server/   ./server/
