@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { StatsBar } from '@/components/ui/stats-bar';
 import { Shell } from '@/components/layout/Shell';
 import { cn } from '@/lib/utils';
@@ -58,6 +58,27 @@ import { formatBytes } from '@/lib/formatters';
 
 const getToken = () => localStorage.getItem('sonaro_token') ?? '';
 
+function buildDiffSummary(
+  before: { ip_mode?: string | null; ip_address?: string | null; subnet?: string | null; gateway?: string | null; type?: string; description?: string | null },
+  after: { ip_mode: string; ip_address: string; subnet: string; gateway: string; type: string; description: string }
+): string {
+  const parts: string[] = [];
+  const modeChanged = before.ip_mode !== after.ip_mode;
+  if (modeChanged) parts.push(`Mode: ${(before.ip_mode ?? 'unknown').toUpperCase()} → ${after.ip_mode.toUpperCase()}`);
+  if (after.ip_mode === 'static') {
+    if ((before.ip_address ?? '') !== after.ip_address && after.ip_address)
+      parts.push(`IP: ${before.ip_address ?? '—'} → ${after.ip_address}`);
+    if ((before.subnet ?? '') !== after.subnet && after.subnet)
+      parts.push(`Mask: ${before.subnet ?? '—'} → ${after.subnet}`);
+    if ((before.gateway ?? '') !== after.gateway)
+      parts.push(`GW: ${before.gateway || '—'} → ${after.gateway || '—'}`);
+  }
+  if ((before.type ?? '') !== after.type) parts.push(`Type: ${before.type ?? '—'} → ${after.type}`);
+  if ((before.description ?? '') !== after.description)
+    parts.push(`Desc: "${before.description || ''}" → "${after.description || ''}"`);
+  return parts.length > 0 ? parts.join(' · ') : 'No changes detected';
+}
+
 async function apiFetch(path: string, options?: RequestInit): Promise<any> {
   const res = await fetch(path, {
     ...options,
@@ -96,6 +117,7 @@ const Interfaces = () => {
   const [isRoot, setIsRoot] = useState<boolean | null>(null);
   const [applyResult, setApplyResult] = useState<{ success: boolean; message: string } | null>(null);
   const [isManagementIface, setIsManagementIface] = useState(false);
+  const [recentlySavedId, setRecentlySavedId] = useState<string | null>(null);
 
   const [form, setForm] = useState({
     name: '',
@@ -110,6 +132,8 @@ const Interfaces = () => {
   });
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
+  const headerCheckboxRef = useRef<HTMLInputElement>(null);
+
   // Fetch root status from health endpoint
   useEffect(() => {
     apiFetch('/api/health').then(data => setIsRoot(data.root ?? false)).catch(() => setIsRoot(false));
@@ -122,10 +146,29 @@ const Interfaces = () => {
     toast.success('Interface data refreshed from system');
   };
 
-  // Single-select: clicking always selects exactly that row.
-  // Click the same row again to deselect it (click away = deselect).
-  const handleSelect = (id: string) => {
-    setSelectedIds(prev => (prev.length === 1 && prev[0] === id ? [] : [id]));
+  // Multi-select with Ctrl+click (toggle) and Shift+click (range).
+  // Plain click always selects only that row (or deselects if it was the only one).
+  const handleSelect = (id: string, e: React.MouseEvent) => {
+    const visibleIds = filteredInterfaces.map(i => i.id);
+
+    if (e.shiftKey && selectedIds.length > 0) {
+      // Range select: from last selected to clicked row
+      const lastId = selectedIds[selectedIds.length - 1];
+      const lastIdx = visibleIds.indexOf(lastId);
+      const clickIdx = visibleIds.indexOf(id);
+      if (lastIdx === -1 || clickIdx === -1) return;
+      const [from, to] = lastIdx < clickIdx ? [lastIdx, clickIdx] : [clickIdx, lastIdx];
+      const range = visibleIds.slice(from, to + 1);
+      setSelectedIds(prev => Array.from(new Set([...prev, ...range])));
+    } else if (e.ctrlKey || e.metaKey) {
+      // Toggle individual row
+      setSelectedIds(prev =>
+        prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+      );
+    } else {
+      // Plain click: single select (or deselect if already the only one)
+      setSelectedIds(prev => (prev.length === 1 && prev[0] === id ? [] : [id]));
+    }
   };
 
   const openEditModal = async (iface?: NetworkInterface) => {
@@ -182,6 +225,19 @@ const Interfaces = () => {
       toast.error('IP address is required for static mode');
       return;
     }
+
+    // Snapshot the "before" state for the diff summary
+    const beforeSnapshot = editingInterface
+      ? {
+          ip_mode: editingInterface.ip_mode,
+          ip_address: editingInterface.ip_address,
+          subnet: editingInterface.subnet,
+          gateway: editingInterface.gateway,
+          type: editingInterface.type,
+          description: editingInterface.description,
+        }
+      : null;
+
     setIsSaving(true);
     setApplyResult(null);
     try {
@@ -197,7 +253,7 @@ const Interfaces = () => {
         }),
       });
 
-      // If creating new interface, also set type/status via CRUD
+      // If editing an existing interface, also set type/status via CRUD
       if (editingInterface) {
         await networkInterfacesApi.update(editingInterface.id, {
           type: form.type as any,
@@ -207,22 +263,52 @@ const Interfaces = () => {
       }
 
       const success = result.success !== false;
-      setApplyResult({ success, message: result.message });
+
+      // Build diff summary for operator feedback
+      const diffSummary = beforeSnapshot
+        ? buildDiffSummary(beforeSnapshot, {
+            ip_mode: form.ip_mode,
+            ip_address: form.ip_address,
+            subnet: form.subnet,
+            gateway: form.gateway,
+            type: form.type,
+            description: form.description,
+          })
+        : null;
+
+      const applyMsg = result.root
+        ? 'Applied to OS and persisted via netplan'
+        : 'Saved — start server with sudo to apply to OS';
+
+      setApplyResult({
+        success,
+        message: success
+          ? `${applyMsg}${diffSummary ? ` · ${diffSummary}` : ''}`
+          : result.message ?? 'Apply failed',
+      });
 
       if (success) {
-        toast.success(result.root
-          ? '✓ Applied to OS and persisted via netplan'
-          : '✓ Saved — start server with sudo to apply to OS'
-        );
+        toast.success(`${form.name} saved`, {
+          description: diffSummary ?? applyMsg,
+          duration: 5000,
+        });
+
+        // Highlight the saved row in the table
+        if (editingInterface) {
+          setRecentlySavedId(editingInterface.id);
+          setTimeout(() => setRecentlySavedId(null), 3000);
+        }
       } else {
-        toast.error(result.message || 'Apply failed');
+        const errorMsg = result.message || 'Apply failed';
+        toast.error(`Failed to save ${form.name}`, { description: errorMsg, duration: 8000 });
       }
 
       await queryClient.invalidateQueries({ queryKey: ['dashboard-interfaces'] });
       if (success) setTimeout(() => setEditModalOpen(false), 1200);
     } catch (err: any) {
-      toast.error(err?.message ?? 'Save failed');
-      setApplyResult({ success: false, message: err?.message ?? 'Save failed' });
+      const errMsg = err?.message ?? 'Save failed';
+      toast.error(`Failed to save ${form.name}`, { description: errMsg, duration: 8000 });
+      setApplyResult({ success: false, message: errMsg });
     } finally {
       setIsSaving(false);
     }
@@ -265,6 +351,24 @@ const Interfaces = () => {
     i.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     (i.ip_address ?? '').includes(searchQuery)
   );
+
+  const allVisibleIds = filteredInterfaces.map(i => i.id);
+  const allSelected = allVisibleIds.length > 0 && allVisibleIds.every(id => selectedIds.includes(id));
+  const someSelected = allVisibleIds.some(id => selectedIds.includes(id)) && !allSelected;
+
+  useEffect(() => {
+    if (headerCheckboxRef.current) {
+      headerCheckboxRef.current.indeterminate = someSelected;
+    }
+  }, [someSelected]);
+
+  const handleSelectAll = () => {
+    if (allSelected) {
+      setSelectedIds([]);
+    } else {
+      setSelectedIds(allVisibleIds);
+    }
+  };
 
   const selectedInterface = selectedIds.length === 1
     ? rawIfaces.find(i => i.id === selectedIds[0])
@@ -336,7 +440,13 @@ const Interfaces = () => {
             onClick={() => selectedInterface && openEditModal(selectedInterface)}
             className="forti-toolbar-btn"
             disabled={selectedIds.length !== 1}
-            title={selectedInterface ? `Edit ${selectedInterface.name}` : 'Select an interface first'}
+            title={
+              selectedIds.length > 1
+                ? 'Select only one interface to edit'
+                : selectedInterface
+                  ? `Edit ${selectedInterface.name}`
+                  : 'Select an interface first'
+            }
           >
             <Edit size={12} />
             {selectedInterface ? `Edit — ${selectedInterface.name}` : 'Edit'}
@@ -346,7 +456,7 @@ const Interfaces = () => {
             className="forti-toolbar-btn"
             disabled={selectedIds.length === 0}
           >
-            <Trash2 size={12} /> Delete
+            <Trash2 size={12} /> {selectedIds.length > 1 ? `Delete (${selectedIds.length})` : 'Delete'}
           </button>
           <div className="forti-toolbar-separator" />
           <button onClick={handleRefresh} className="forti-toolbar-btn" disabled={isRefreshing}>
@@ -414,6 +524,17 @@ const Interfaces = () => {
         <table className="data-table">
           <thead>
             <tr>
+              <th className="w-8 text-center">
+                <input
+                  ref={headerCheckboxRef}
+                  type="checkbox"
+                  checked={allSelected}
+                  onChange={handleSelectAll}
+                  className="cursor-pointer accent-blue-600"
+                  title={allSelected ? 'Deselect all' : 'Select all visible'}
+                  disabled={allVisibleIds.length === 0}
+                />
+              </th>
               <th className="w-10">Status</th>
               <th>Name</th>
               <th>MAC</th>
@@ -425,7 +546,7 @@ const Interfaces = () => {
           </thead>
           <tbody>
             <tr className="group-header">
-              <td colSpan={7} className="py-1 px-2">
+              <td colSpan={8} className="py-1 px-2">
                 <div className="flex items-center gap-2">
                   <ChevronDown size={12} />
                   <span>Physical ({filteredInterfaces.length})</span>
@@ -435,7 +556,7 @@ const Interfaces = () => {
 
             {isLoading && (
               <tr>
-                <td colSpan={7} className="py-6 text-center text-[#999] text-[11px]">
+                <td colSpan={8} className="py-6 text-center text-[#999] text-[11px]">
                   <Loader2 size={14} className="animate-spin inline mr-2" />Loading interfaces from system...
                 </td>
               </tr>
@@ -443,7 +564,7 @@ const Interfaces = () => {
 
             {!isLoading && filteredInterfaces.length === 0 && (
               <tr>
-                <td colSpan={7} className="py-6 text-center text-[#999] text-[11px]">
+                <td colSpan={8} className="py-6 text-center text-[#999] text-[11px]">
                   No interfaces detected — system agent will populate this table automatically.
                 </td>
               </tr>
@@ -451,18 +572,31 @@ const Interfaces = () => {
 
             {filteredInterfaces.map((iface) => {
               const isSelected = selectedIds.includes(iface.id);
+              const isRecentlySaved = recentlySavedId === iface.id;
               return (
               <tr
                 key={iface.id}
-                onClick={() => handleSelect(iface.id)}
+                onClick={(e) => handleSelect(iface.id, e)}
                 onDoubleClick={() => openEditModal(iface)}
                 className={cn(
-                  "cursor-pointer select-none transition-colors",
-                  isSelected
+                  "cursor-pointer select-none transition-colors duration-700",
+                  isRecentlySaved
+                    ? "bg-green-50 border-l-[3px] border-l-green-500"
+                    : isSelected
                     ? "bg-blue-50 border-l-[3px] border-l-blue-500"
                     : "hover:bg-[#f5f5f5]"
                 )}
               >
+                <td className="text-center" onClick={(e) => e.stopPropagation()}>
+                  <input
+                    type="checkbox"
+                    checked={isSelected}
+                    onChange={() => setSelectedIds(prev =>
+                      prev.includes(iface.id) ? prev.filter(x => x !== iface.id) : [...prev, iface.id]
+                    )}
+                    className="cursor-pointer accent-blue-600"
+                  />
+                </td>
                 <td>
                   <span className={cn(
                     "inline-flex items-center justify-center w-5 h-5 rounded-sm text-[10px] font-bold",
@@ -696,7 +830,9 @@ const Interfaces = () => {
           <AlertDialogHeader>
             <AlertDialogTitle>Delete Interface(s)?</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to delete {selectedIds.length} interface(s)? WAN/LAN interfaces cannot be deleted.
+              {selectedIds.length === 1
+                ? 'Are you sure you want to delete this interface? WAN/LAN interfaces cannot be deleted.'
+                : `Are you sure you want to delete ${selectedIds.length} interfaces? WAN/LAN interfaces will be skipped.`}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
