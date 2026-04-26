@@ -134,7 +134,7 @@ const Interfaces = () => {
       setForm({
         name: iface.name,
         type: iface.type,
-        ip_mode: iface.ip_mode || 'static',
+        ip_mode: (iface.ip_mode === 'dhcp') ? 'dhcp' : 'static',
         ip_address: iface.ip_address ?? '',
         subnet: iface.subnet ?? '255.255.255.0',
         gateway: iface.gateway ?? '',

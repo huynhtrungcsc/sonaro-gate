@@ -613,7 +613,8 @@ async function startWebServer() {
     const name = req.params.name as string;
     const { ip_address, subnet, gateway, ip_mode, description } = req.body;
 
-    const mode: string = ip_mode || 'static';
+    // Normalize 'unconfigured' (interface detected but no IP yet) → treat as 'static' intent
+    const mode: string = (!ip_mode || ip_mode === 'unconfigured') ? 'static' : ip_mode;
 
     // Validate required fields for static mode
     if (mode === 'static' && (!ip_address || !subnet)) {
