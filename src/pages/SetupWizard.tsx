@@ -656,6 +656,7 @@ function StepPassword({ form, set }: { form: WizardState; set: (k: keyof WizardS
 // ─── Step 6: Done ────────────────────────────────────────────────────────────
 
 function StepDone({ result }: { result: { lanIp: string; root: boolean } }) {
+  const managementUrl = `http://${result.lanIp}`;
   return (
     <div>
       <DescRow>
@@ -665,8 +666,7 @@ function StepDone({ result }: { result: { lanIp: string; root: boolean } }) {
               Congratulations! Sonaro Gate is now configured.
             </p>
             <p className="text-[11px] text-[#555]">
-              The firewall management console is ready. Connect a device to the LAN network
-              and open the management URL below.
+              Connect a device to the LAN interface and open the management URL below to access the web UI.
             </p>
           </div>
 
@@ -674,12 +674,9 @@ function StepDone({ result }: { result: { lanIp: string; root: boolean } }) {
             <div className="flex items-center gap-2">
               <Globe className="w-3.5 h-3.5 text-[hsl(142,70%,35%)] shrink-0" />
               <span className="text-[#888]">Management URL:</span>
-              <a
-                href={`http://${result.lanIp}`}
-                className="font-mono font-medium text-[hsl(142,70%,35%)] hover:underline"
-              >
-                http://{result.lanIp}
-              </a>
+              <span className="font-mono font-medium text-[hsl(142,70%,35%)]">
+                {managementUrl}
+              </span>
             </div>
             <div className="flex items-center gap-2">
               <Shield className="w-3.5 h-3.5 text-[#888] shrink-0" />
