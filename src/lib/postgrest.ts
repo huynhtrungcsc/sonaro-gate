@@ -94,7 +94,7 @@ async function request<T = any>(
       // Auto-logout on 401 — token expired or invalid
       if (res.status === 401) {
         clearSession();
-        window.location.href = '/login';
+        window.location.href = '/auth';
         return { data: null, error: new Error('Session expired. Please log in again.') };
       }
       const body = await res.text();
@@ -381,7 +381,7 @@ export async function apiFetch(path: string, options?: RequestInit): Promise<any
   if (!res.ok) {
     if (res.status === 401) {
       clearSession();
-      window.location.href = '/login';
+      window.location.href = '/auth';
       throw new Error('Session expired. Please log in again.');
     }
     throw new Error((json as any).message ?? `HTTP ${res.status}`);
