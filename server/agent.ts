@@ -446,9 +446,37 @@ async function syncRealNetworkInterfaces() {
         await db.insert(networkInterfaces).values(data);
         console.log(`[Agent] Discovered: ${name} (${type}) ${ip ?? 'no IP'} [${ip_mode}] [${status}]`);
       } else {
+        const existingRecord = existing[0];
+
+        // Always refresh hardware/link stats.
+        const updateData: Record<string, any> = {
+          status:      data.status,
+          speed:       data.speed,
+          duplex:      data.duplex,
+          mac:         data.mac,
+          mtu:         data.mtu,
+          rx_bytes:    data.rx_bytes,
+          tx_bytes:    data.tx_bytes,
+          rx_packets:  data.rx_packets,
+          tx_packets:  data.tx_packets,
+          updated_at:  new Date(),
+        };
+
+        // For DHCP interfaces: refresh ip_address/subnet from OS so the UI shows
+        // the currently leased address (DHCP leases change dynamically).
+        // For static/unconfigured interfaces: preserve the operator-configured values
+        // — do NOT let the agent clobber them with OS state that may lag behind.
+        if (existingRecord.ip_mode === 'dhcp') {
+          updateData.ip_address = data.ip_address;
+          updateData.subnet     = data.subnet;
+        }
+
+        // ip_mode is NEVER overwritten by the agent — it reflects operator intent,
+        // not transient OS state (e.g. a stale dhclient process).
+
         await db
           .update(networkInterfaces)
-          .set({ ...data, updated_at: new Date() })
+          .set(updateData)
           .where(eq(networkInterfaces.name, name));
       }
     }

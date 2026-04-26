@@ -621,40 +621,26 @@ async function startWebServer() {
       return res.status(400).json({ success: false, message: 'ip_address and subnet required for static mode' });
     }
 
-    // 1. Apply to OS immediately (runtime — survives until reboot)
-    let applyResult: any = { success: true, message: 'Config saved to database.', commands: [] };
     const root = await isRoot();
 
+    // 1. Apply IP address to OS synchronously — these are fast iproute2 commands
+    //    and do NOT restart the interface, so the TCP connection stays alive.
+    let applyResult: any = { success: true, message: 'Config saved to database.', commands: [] };
     if (root) {
       if (mode === 'static' && ip_address) {
         applyResult = await applyInterfaceIP(name, ip_address, subnet, gateway);
-      } else if (mode === 'dhcp') {
-        // Release any static config and request DHCP
-        await hostExec(`ip addr flush dev ${name} && dhclient ${name} 2>/dev/null || dhcpcd ${name} 2>/dev/null || true`);
-        applyResult = { success: true, message: `${name}: DHCP client started`, commands: [`ip addr flush dev ${name}`, `dhclient ${name}`] };
+      }
+      // DHCP: flush static addr only; dhclient is started in background below
+      // so it does not block the response (dhclient can take 30–60 s to get a lease).
+      if (mode === 'dhcp') {
+        await hostExec(`ip addr flush dev ${name} 2>/dev/null || true`);
+        applyResult = { success: true, message: `${name}: DHCP client starting…`, commands: [`ip addr flush dev ${name}`] };
       }
     }
 
-    // 2. Persist to netplan so config survives reboots
-    let netplanResult: any = null;
-    if (root) {
-      try {
-        const allIfaces = await db.select().from(networkInterfaces);
-        // Build netplan config from all interfaces
-        const ifaces = allIfaces.map(i => ({
-          name: i.name,
-          ip_address: i.name === name ? (ip_address || null) : i.ip_address,
-          subnet: i.name === name ? (subnet || null) : i.subnet,
-          gateway: i.name === name ? (gateway || null) : i.gateway,
-          dhcp: i.name === name ? (mode === 'dhcp') : (i.ip_mode === 'dhcp'),
-        }));
-        netplanResult = await applyNetplanConfig(ifaces);
-      } catch (e: any) {
-        netplanResult = { success: false, message: `netplan: ${e.message}` };
-      }
-    }
-
-    // 3. Save to database
+    // 2. Save to database BEFORE running netplan apply so the response is sent
+    //    immediately. netplan apply restarts network interfaces — if we await it,
+    //    it drops the TCP connection and the browser never receives the response.
     try {
       const [ex] = await db.select().from(networkInterfaces).where(eq(networkInterfaces.name, name)).limit(1);
       const data: Record<string, any> = {
@@ -672,13 +658,41 @@ async function startWebServer() {
       }
     } catch { /* ignore DB error */ }
 
+    // 3. Send response immediately so the browser's spinner stops.
     res.json({
       ...applyResult,
       root,
-      netplan: netplanResult,
+      netplan: null,
       message: root
-        ? (applyResult.success ? `Applied to OS (${mode}) and persisted via netplan.` : applyResult.message)
+        ? (applyResult.success ? `Applied to OS (${mode}). Persisting via netplan in background…` : applyResult.message)
         : `Saved to database. Start server with sudo to apply to OS.`,
+    });
+
+    // 4. Fire-and-forget: persist to netplan + start dhclient.
+    //    These can restart the network interface and/or take a long time, so we
+    //    never await them in the request handler.
+    setImmediate(async () => {
+      try {
+        if (root) {
+          const allIfaces = await db.select().from(networkInterfaces);
+          const ifaces = allIfaces.map(i => ({
+            name: i.name,
+            ip_address: i.name === name ? (ip_address || null) : i.ip_address,
+            subnet: i.name === name ? (subnet || null) : i.subnet,
+            gateway: i.name === name ? (gateway || null) : i.gateway,
+            dhcp: i.name === name ? (mode === 'dhcp') : (i.ip_mode === 'dhcp'),
+          }));
+          const nr = await applyNetplanConfig(ifaces);
+          console.log(`[Apply] netplan for ${name}: ${nr.success ? 'ok' : nr.message}`);
+
+          if (mode === 'dhcp') {
+            await hostExec(`dhclient ${name} 2>/dev/null || dhcpcd ${name} 2>/dev/null || true`).catch(() => {});
+            console.log(`[Apply] dhclient started for ${name}`);
+          }
+        }
+      } catch (e: any) {
+        console.error(`[Apply] background netplan error for ${name}:`, e.message);
+      }
     });
   });
 
