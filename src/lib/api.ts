@@ -19,6 +19,8 @@ export interface NetworkInterface {
   id: string; name: string; type: string; status: string; ip_address: string | null;
   subnet: string | null; gateway: string | null; mac: string | null; speed: string | null;
   duplex: string | null; mtu: number | null; vlan: number | null;
+  ip_mode: string | null;   // 'dhcp' | 'static' | 'unconfigured' | 'unknown' — detected from OS
+  description: string | null;
   rx_bytes: number | null; tx_bytes: number | null; rx_packets: number | null;
   tx_packets: number | null; created_at: string; updated_at: string;
 }

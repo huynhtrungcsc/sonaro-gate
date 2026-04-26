@@ -3,7 +3,24 @@ import { Shell } from '@/components/layout/Shell';
 import { db, isApiConfigured } from '@/lib/postgrest';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
-import { RefreshCw, Save, AlertTriangle } from 'lucide-react';
+import { RefreshCw, Save, AlertTriangle, CheckCircle2 } from 'lucide-react';
+
+const getToken = () => localStorage.getItem('sonaro_token') ?? '';
+
+async function applyIface(nicName: string, payload: {
+  ip_mode: string; ip_address?: string | null; subnet?: string | null; gateway?: string | null;
+}): Promise<{ success: boolean; message: string; root?: boolean }> {
+  try {
+    const res = await fetch(`/api/system/interfaces/${encodeURIComponent(nicName)}/apply`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
+      body: JSON.stringify(payload),
+    });
+    return res.json();
+  } catch (e: any) {
+    return { success: false, message: e.message };
+  }
+}
 
 interface DetectedNIC {
   name: string;
@@ -124,41 +141,53 @@ const InterfaceAssignment = () => {
     }
 
     setIsSaving(true);
+    let appliedToOs = false;
     try {
       for (const zone of zones) {
         if (!zone.nic) continue;
 
         const selectedNIC = detectedNICs.find(n => n.name === zone.nic);
 
-        const payload = {
-          name: zone.zone,
+        // Save zone→NIC mapping to DB
+        const dbPayload = {
+          name: zone.nic,       // use actual NIC name (e.g. eth0, ens3)
           type: zone.zone as "WAN" | "LAN" | "DMZ",
           status: 'up' as const,
-          ip_address: zone.ip || null,
-          subnet: zone.subnet || null,
+          ip_address: zone.mode === 'dhcp' ? null : (zone.ip || null),
+          subnet: zone.mode === 'dhcp' ? null : (zone.subnet || null),
           gateway: zone.gateway || null,
           mac: selectedNIC?.mac || null,
           speed: selectedNIC?.speed || null,
           mtu: 1500,
+          ip_mode: zone.mode,
         };
 
-        // Upsert: check if exists
         const { data: existing } = await (db.from('network_interfaces')
           .select('id')
-          .eq('name', zone.zone)
+          .eq('name', zone.nic)
           .maybeSingle() as any);
 
         if (existing) {
-          await (db.from('network_interfaces')
-            .update(payload)
-            .eq('id', existing.id) as any);
+          await (db.from('network_interfaces').update(dbPayload).eq('id', existing.id) as any);
         } else {
-          await (db.from('network_interfaces')
-            .insert(payload) as any);
+          await (db.from('network_interfaces').insert(dbPayload) as any);
         }
+
+        // Apply IP config to the actual NIC
+        const applyPayload = {
+          ip_mode: zone.mode,
+          ip_address: zone.mode === 'static' ? zone.ip : null,
+          subnet: zone.mode === 'static' ? zone.subnet : null,
+          gateway: zone.gateway || null,
+        };
+        const result = await applyIface(zone.nic, applyPayload);
+        if (result.root) appliedToOs = true;
       }
 
-      toast.success('Interface assignments saved! Agent will apply on next sync.');
+      toast.success(appliedToOs
+        ? '✓ Assignments applied to OS and persisted via netplan'
+        : '✓ Assignments saved. Run with sudo to apply to OS.'
+      );
       setHasChanges(false);
     } catch (err) {
       toast.error('Failed to save interface assignments');

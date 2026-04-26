@@ -88,6 +88,8 @@ export const networkInterfaces = pgTable('network_interfaces', {
   duplex: text('duplex').default('full'),
   mtu: integer('mtu').default(1500),
   vlan: integer('vlan'),
+  ip_mode: text('ip_mode').default('unknown'),   // 'dhcp' | 'static' | 'unknown'
+  description: text('description').default(''),
   rx_bytes: bigint('rx_bytes', { mode: 'number' }).default(0),
   tx_bytes: bigint('tx_bytes', { mode: 'number' }).default(0),
   rx_packets: bigint('rx_packets', { mode: 'number' }).default(0),

@@ -262,6 +262,51 @@ async function collectNetworkStats() {
   }
 }
 
+/**
+ * Detect whether an interface is using DHCP or static IP.
+ * Checks `ip route show dev IFACE` for 'proto dhcp'.
+ * On systemd-networkd also checks /run/systemd/netif/leases/.
+ */
+async function detectIpMode(ifaceName: string): Promise<'dhcp' | 'static' | 'unconfigured'> {
+  try {
+    // Method 1: ip route — if any route has 'proto dhcp' for this iface → DHCP
+    const { stdout: routes } = await execAsync(`ip route show dev ${ifaceName} 2>/dev/null`).catch(() => ({ stdout: '' }));
+    if (routes.includes('proto dhcp')) return 'dhcp';
+
+    // Method 2: check systemd-networkd lease files
+    // Interface index from ip link show
+    const { stdout: link } = await execAsync(`ip link show ${ifaceName} 2>/dev/null`).catch(() => ({ stdout: '' }));
+    const indexMatch = link.match(/^(\d+):/m);
+    if (indexMatch) {
+      const idx = indexMatch[1];
+      const leaseExists = await execAsync(`test -f /run/systemd/netif/leases/${idx} && echo yes`).then(r => r.stdout.includes('yes')).catch(() => false);
+      if (leaseExists) return 'dhcp';
+    }
+
+    // Method 3: check if dhclient is running for this interface
+    const { stdout: ps } = await execAsync(`pgrep -a dhclient 2>/dev/null || true`).catch(() => ({ stdout: '' }));
+    if (ps.includes(ifaceName)) return 'dhcp';
+
+    // Method 4: check netplan config for this interface
+    const { stdout: netplanFiles } = await execAsync(`ls /etc/netplan/*.yaml 2>/dev/null || true`).catch(() => ({ stdout: '' }));
+    for (const f of netplanFiles.trim().split('\n').filter(Boolean)) {
+      const { stdout: content } = await execAsync(`cat "${f}" 2>/dev/null`).catch(() => ({ stdout: '' }));
+      if (content.includes(ifaceName)) {
+        if (content.includes('dhcp4: true') || content.includes('dhcp4:true')) return 'dhcp';
+        if (content.includes('addresses:') || content.includes('dhcp4: false')) return 'static';
+      }
+    }
+
+    // Has an IP assigned → assume static (manually configured or other DHCP client)
+    const { stdout: addr } = await execAsync(`ip addr show dev ${ifaceName} 2>/dev/null`).catch(() => ({ stdout: '' }));
+    if (addr.includes('inet ')) return 'static';
+
+    return 'unconfigured';
+  } catch {
+    return 'unconfigured';
+  }
+}
+
 async function syncRealNetworkInterfaces() {
   try {
     const [nets, netStats, wanIface] = await Promise.all([
@@ -311,6 +356,9 @@ async function syncRealNetworkInterfaces() {
       const ip = iface.ip4 && iface.ip4.trim() ? iface.ip4.trim() : null;
       const subnet = iface.ip4subnet && iface.ip4subnet.trim() ? iface.ip4subnet.trim() : null;
 
+      // Detect DHCP vs Static — check OS routing table and lease files
+      const ip_mode = await detectIpMode(iface.iface);
+
       const data = {
         name: iface.iface,
         type,
@@ -321,6 +369,7 @@ async function syncRealNetworkInterfaces() {
         speed,
         duplex,
         mtu: iface.mtu || 1500,
+        ip_mode,
         rx_bytes: stat.rx_bytes || 0,
         tx_bytes: stat.tx_bytes || 0,
         rx_packets: stat.rx_packets || 0,
@@ -335,7 +384,7 @@ async function syncRealNetworkInterfaces() {
 
       if (existing.length === 0) {
         await db.insert(networkInterfaces).values(data);
-        console.log(`[Agent] Discovered interface: ${iface.iface} (${type}) ${ip ?? 'no IP'}`);
+        console.log(`[Agent] Discovered interface: ${iface.iface} (${type}) ${ip ?? 'no IP'} [${ip_mode}]`);
       } else {
         await db
           .update(networkInterfaces)

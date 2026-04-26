@@ -611,21 +611,74 @@ async function startWebServer() {
 
   app.post('/api/system/interfaces/:name/apply', requireAuth, async (req, res) => {
     const name = req.params.name as string;
-    const { ip_address, subnet, gateway } = req.body;
-    if (!ip_address || !subnet) {
-      return res.status(400).json({ success: false, message: 'ip_address and subnet required' });
+    const { ip_address, subnet, gateway, ip_mode, description } = req.body;
+
+    const mode: string = ip_mode || 'static';
+
+    // Validate required fields for static mode
+    if (mode === 'static' && (!ip_address || !subnet)) {
+      return res.status(400).json({ success: false, message: 'ip_address and subnet required for static mode' });
     }
-    const result = await applyInterfaceIP(name, ip_address, subnet, gateway);
+
+    // 1. Apply to OS immediately (runtime — survives until reboot)
+    let applyResult: any = { success: true, message: 'Config saved to database.', commands: [] };
+    const root = await isRoot();
+
+    if (root) {
+      if (mode === 'static' && ip_address) {
+        applyResult = await applyInterfaceIP(name, ip_address, subnet, gateway);
+      } else if (mode === 'dhcp') {
+        // Release any static config and request DHCP
+        await hostExec(`ip addr flush dev ${name} && dhclient ${name} 2>/dev/null || dhcpcd ${name} 2>/dev/null || true`);
+        applyResult = { success: true, message: `${name}: DHCP client started`, commands: [`ip addr flush dev ${name}`, `dhclient ${name}`] };
+      }
+    }
+
+    // 2. Persist to netplan so config survives reboots
+    let netplanResult: any = null;
+    if (root) {
+      try {
+        const allIfaces = await db.select().from(networkInterfaces);
+        // Build netplan config from all interfaces
+        const ifaces = allIfaces.map(i => ({
+          name: i.name,
+          ip_address: i.name === name ? (ip_address || null) : i.ip_address,
+          subnet: i.name === name ? (subnet || null) : i.subnet,
+          gateway: i.name === name ? (gateway || null) : i.gateway,
+          dhcp: i.name === name ? (mode === 'dhcp') : (i.ip_mode === 'dhcp'),
+        }));
+        netplanResult = await applyNetplanConfig(ifaces);
+      } catch (e: any) {
+        netplanResult = { success: false, message: `netplan: ${e.message}` };
+      }
+    }
+
+    // 3. Save to database
     try {
       const [ex] = await db.select().from(networkInterfaces).where(eq(networkInterfaces.name, name)).limit(1);
-      const data = { ip_address, subnet, gateway: gateway || null, updated_at: new Date() };
+      const data: Record<string, any> = {
+        ip_address: mode === 'dhcp' ? null : (ip_address || null),
+        subnet: mode === 'dhcp' ? null : (subnet || null),
+        gateway: gateway || null,
+        ip_mode: mode,
+        description: description || null,
+        updated_at: new Date(),
+      };
       if (ex) {
         await db.update(networkInterfaces).set(data).where(eq(networkInterfaces.name, name));
       } else {
         await db.insert(networkInterfaces).values({ name, type: 'LAN', status: 'up', ...data });
       }
-    } catch { /* ignore */ }
-    res.json(result);
+    } catch { /* ignore DB error */ }
+
+    res.json({
+      ...applyResult,
+      root,
+      netplan: netplanResult,
+      message: root
+        ? (applyResult.success ? `Applied to OS (${mode}) and persisted via netplan.` : applyResult.message)
+        : `Saved to database. Start server with sudo to apply to OS.`,
+    });
   });
 
   app.post('/api/system/interfaces/:name/state', requireAuth, async (req, res) => {

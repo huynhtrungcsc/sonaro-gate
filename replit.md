@@ -129,7 +129,7 @@ docker compose up -d
 | File | Purpose |
 |---|---|
 | `server/index.ts` | Express entry point — registers all routes, creates HTTP + WebSocket server |
-| `server/agent.ts` | Background OS metrics collector — every 30s/60s, broadcasts via WebSocket |
+| `server/agent.ts` | Background OS metrics collector — every 30s/60s, broadcasts via WebSocket. `syncRealNetworkInterfaces()` detects actual NICs and their ip_mode (dhcp/static/unconfigured) via: 1) ip route proto dhcp, 2) systemd lease files, 3) dhclient process, 4) netplan YAML parsing |
 | `server/ws.ts` | WebSocket server (`noServer` mode) — `broadcast(type, data)` function |
 | `server/iptables.ts` | Kernel integration: iptables, ip addr/route, sysctl, netplan |
 | `server/suricata.ts` | Suricata IPS management — start/stop/reload, custom rules, signature update |
@@ -215,10 +215,12 @@ POST /api/system/nat-masquerade            Enable masquerade on interface
 POST /api/system/apply-config              Apply full config (firewall + NAT + netplan)
 GET  /api/system/interfaces                Real NIC list from OS
 GET  /api/system/interfaces/:name          Single interface details
-POST /api/system/interfaces/:name/apply    Apply interface config
+POST /api/system/interfaces/:name/apply    Apply interface config to OS + netplan + DB
+                                           Body: { ip_mode: 'static'|'dhcp', ip_address?, subnet?, gateway?, description? }
+                                           Returns: { success, root, netplan, message }
 POST /api/system/interfaces/:name/state    Set interface up/down
 POST /api/system/netplan/apply             Write + apply Netplan config
-GET  /api/health                           Health check (no auth)
+GET  /api/health                           Health check — returns { root: bool, ... }
 ```
 
 ### IPS (Suricata)
