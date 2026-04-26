@@ -46,8 +46,8 @@ FROM ubuntu:24.04 AS production
 # Prevent interactive apt prompts
 ENV DEBIAN_FRONTEND=noninteractive
 
-# ── System packages ───────────────────────────────────────────────────────────
-# iproute2          : ip addr, ip route, ip link
+# ── System packages + Node.js ─────────────────────────────────────────────────
+# iproute2          : ip addr, ip route, ip link  (also used by agent.ts)
 # iptables          : iptables / ip6tables  (nftables-backed + legacy)
 # ipset             : ipset for dynamic address sets
 # netplan.io        : netplan generate / netplan apply  (Ubuntu-native)
@@ -57,6 +57,13 @@ ENV DEBIAN_FRONTEND=noninteractive
 # curl wget         : health check + external connectivity tests
 # procps            : pgrep / ps — used to detect running dhclient processes
 # ca-certificates   : TLS bundle for outbound HTTPS calls
+# nodejs npm        : Node.js runtime — Ubuntu 24.04 ships Node 18 LTS which
+#                     satisfies tsx ≥ 18 requirement; avoids external curl deps
+#
+# NOTE: Do NOT use NodeSource (nodesource.com/setup_20.x) here. That script
+# requires an outbound curl during the Docker build layer which fails on
+# air-gapped or rate-limited hosts. The Ubuntu 24.04 built-in Node.js package
+# is sufficient and requires no external network beyond apt mirrors.
 RUN apt-get update -qq && apt-get install -y --no-install-recommends \
     iproute2 \
     iptables \
@@ -69,11 +76,8 @@ RUN apt-get update -qq && apt-get install -y --no-install-recommends \
     wget \
     procps \
     ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
-
-# ── Node.js 20 LTS (via NodeSource) ──────────────────────────────────────────
-RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
-    && apt-get install -y --no-install-recommends nodejs \
+    nodejs \
+    npm \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
