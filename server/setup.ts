@@ -672,3 +672,384 @@ export async function runSetupWizard(): Promise<void> {
     process.exit(1);
   }
 }
+
+// ─────────────────────────────────────────────────────────────────
+// pfSense-style persistent console menu (shown after setup is done)
+// ─────────────────────────────────────────────────────────────────
+
+async function getIfaceStatus(): Promise<{ wan: string; lan: string; hostname: string }> {
+  try {
+    const rows = await db.select().from(systemSettings);
+    const get = (key: string) => rows.find(r => r.key === key)?.value ?? '';
+    const wanIface = get('wan_interface');
+    const lanIface = get('lan_interface');
+    const hostname = get('hostname') || 'sonaro-gw';
+
+    const wanRows = await db.select().from(networkInterfaces).where(eq(networkInterfaces.name, wanIface)).limit(1);
+    const lanRows = await db.select().from(networkInterfaces).where(eq(networkInterfaces.name, lanIface)).limit(1);
+
+    const wanRow = wanRows[0];
+    const lanRow = lanRows[0];
+
+    const fmtIface = (row: typeof wanRow | undefined, defaultName: string) => {
+      if (!row) return `${defaultName} -> (not configured)`;
+      const ip = row.ip_address ?? '(no IP)';
+      const mode = row.ip_mode === 'dhcp' ? 'v4/DHCP4' : 'v4';
+      const cidr = row.subnet ? `/${maskToCidr(row.subnet)}` : '';
+      return `${row.name} -> ${mode}: ${ip}${cidr}`;
+    };
+
+    return {
+      wan: fmtIface(wanRow, wanIface || 'WAN'),
+      lan: fmtIface(lanRow, lanIface || 'LAN'),
+      hostname,
+    };
+  } catch {
+    return { wan: '(unknown)', lan: '(unknown)', hostname: 'sonaro-gw' };
+  }
+}
+
+function printConsoleMenu(status: { wan: string; lan: string; hostname: string }) {
+  process.stdout.write('\x1Bc');
+  const LINE = '═'.repeat(62);
+  const line = '─'.repeat(62);
+
+  console.log(LINE);
+  console.log(center(`*** Welcome to Sonaro Gate 2025.1 on ${status.hostname} ***`, 62));
+  console.log(LINE);
+  console.log();
+  console.log(`  WAN (wan) -> ${status.wan}`);
+  console.log(`  LAN (lan) -> ${status.lan}`);
+  console.log();
+  console.log(line);
+  console.log();
+  console.log('   0) Logout (SSH only)             5) Reboot system');
+  console.log('   1) Assign Interfaces             6) Halt system');
+  console.log('   2) Set interface(s) IP address   7) Ping host');
+  console.log('   3) Reset webGUI password         8) Shell');
+  console.log('   4) Reset to factory defaults');
+  console.log();
+  console.log(line);
+}
+
+export async function runConsoleMenu(): Promise<void> {
+  if (!process.stdin.isTTY || !process.stdout.isTTY) return;
+
+  const cli = createCLI();
+
+  while (true) {
+    const status = await getIfaceStatus();
+    printConsoleMenu(status);
+
+    const choice = await cli.ask('  Enter an option');
+
+    switch (choice.trim()) {
+      case '0': {
+        // Logout — only meaningful on SSH; in console we just re-display menu
+        console.log();
+        console.log('  Logout is only applicable to SSH sessions.');
+        console.log('  Press Enter to continue...');
+        await cli.ask('');
+        break;
+      }
+
+      case '1': {
+        // Assign Interfaces
+        console.log();
+        console.log(LINE);
+        console.log(center('Assign Interfaces', 62));
+        console.log(LINE);
+        console.log();
+        console.log('  Detecting network interfaces...');
+        const nics = await detectNics();
+
+        if (nics.length === 0) {
+          console.log('  ✗ No interfaces detected.');
+          await cli.ask('  Press Enter to return to menu');
+          break;
+        }
+
+        nics.forEach((nic, i) => {
+          const speed = nic.speed ? ` ${nic.speed} Mbps` : '';
+          const state = nic.operstate === 'up' ? '↑ UP' : '↓ DOWN';
+          console.log(`  [${i + 1}] ${nic.name.padEnd(12)} ${nic.mac}  ${state}${speed}`);
+          if (nic.ip4 && nic.ip4 !== '(no IP)') console.log(`       IP: ${nic.ip4}`);
+        });
+        console.log();
+
+        const wanNum = parseInt(await cli.ask(`  Select WAN interface (1-${nics.length})`, '1'));
+        if (isNaN(wanNum) || wanNum < 1 || wanNum > nics.length) {
+          console.log('  ✗ Invalid selection.'); await cli.ask('  Press Enter'); break;
+        }
+
+        const availLan = nics.filter((_, i) => i + 1 !== wanNum);
+        const defaultLanNum = nics.indexOf(availLan[0]) + 1;
+
+        console.log();
+        availLan.forEach((nic, i) => {
+          console.log(`  [${nics.indexOf(nic) + 1}] ${nic.name.padEnd(12)} ${nic.mac}`);
+        });
+        console.log();
+
+        const lanNum = parseInt(await cli.ask(`  Select LAN interface (1-${nics.length})`, String(defaultLanNum)));
+        if (isNaN(lanNum) || lanNum < 1 || lanNum > nics.length || lanNum === wanNum) {
+          console.log('  ✗ Invalid or same as WAN.'); await cli.ask('  Press Enter'); break;
+        }
+
+        const wanNic = nics[wanNum - 1];
+        const lanNic = nics[lanNum - 1];
+        console.log();
+        console.log(`  WAN: ${wanNic.name}  LAN: ${lanNic.name}`);
+        const confirm = await cli.ask('  Apply assignment? (y/n)', 'y');
+        if (confirm.toLowerCase() === 'y') {
+          const settings: Array<{ key: string; value: string; description: string }> = [
+            { key: 'wan_interface', value: wanNic.name, description: 'WAN interface name' },
+            { key: 'lan_interface', value: lanNic.name, description: 'LAN interface name' },
+          ];
+          for (const s of settings) {
+            const ex = await db.select().from(systemSettings).where(eq(systemSettings.key, s.key)).limit(1);
+            if (ex.length === 0) {
+              await db.insert(systemSettings).values(s);
+            } else {
+              await db.update(systemSettings).set({ value: s.value, updated_at: new Date() }).where(eq(systemSettings.key, s.key));
+            }
+          }
+          // Update networkInterfaces type
+          await db.update(networkInterfaces).set({ type: 'WAN', updated_at: new Date() }).where(eq(networkInterfaces.name, wanNic.name));
+          await db.update(networkInterfaces).set({ type: 'LAN', updated_at: new Date() }).where(eq(networkInterfaces.name, lanNic.name));
+          console.log('  [✓] Interface assignment saved.');
+        }
+        await cli.ask('  Press Enter to return to menu');
+        break;
+      }
+
+      case '2': {
+        // Set interface IP
+        console.log();
+        console.log(LINE);
+        console.log(center('Set Interface IP Address', 62));
+        console.log(LINE);
+        console.log();
+
+        const rows = await db.select().from(systemSettings);
+        const wanIface = rows.find(r => r.key === 'wan_interface')?.value ?? '';
+        const lanIface = rows.find(r => r.key === 'lan_interface')?.value ?? '';
+
+        if (!wanIface && !lanIface) {
+          console.log('  ✗ No interfaces assigned. Use option 1 first.');
+          await cli.ask('  Press Enter'); break;
+        }
+
+        console.log('  Which interface to configure?');
+        if (wanIface) console.log(`    (1) WAN — ${wanIface}`);
+        if (lanIface) console.log(`    (2) LAN — ${lanIface}`);
+        console.log();
+
+        const ifaceChoice = await cli.ask('  Enter option');
+        const selectedIface = ifaceChoice === '1' ? wanIface : ifaceChoice === '2' ? lanIface : null;
+        const selectedType = ifaceChoice === '1' ? 'WAN' : 'LAN';
+
+        if (!selectedIface) {
+          console.log('  ✗ Invalid option.'); await cli.ask('  Press Enter'); break;
+        }
+
+        console.log();
+        console.log(`  Configuring ${selectedType} (${selectedIface}):`);
+        console.log('    (1) DHCP — automatic (WAN only)');
+        console.log('    (2) Static IP');
+        const modeChoice = await cli.ask('  Choose mode', selectedType === 'LAN' ? '2' : '1');
+        const isDhcp = modeChoice !== '2';
+
+        if (isDhcp && selectedType === 'LAN') {
+          console.log('  ✗ LAN must use a static IP.'); await cli.ask('  Press Enter'); break;
+        }
+
+        let ip = '';
+        let mask = '';
+        let gateway = '';
+
+        if (!isDhcp) {
+          const currentRows = await db.select().from(networkInterfaces).where(eq(networkInterfaces.name, selectedIface)).limit(1);
+          const current = currentRows[0];
+          ip = await cli.ask(`  IP address`, current?.ip_address ?? '');
+          mask = await cli.ask(`  Subnet mask`, current?.subnet ?? '255.255.255.0');
+          if (selectedType === 'WAN') {
+            gateway = await cli.ask(`  Default gateway (leave blank to skip)`, current?.gateway ?? '');
+          }
+        }
+
+        const applyConf = await cli.ask('  Apply? (y/n)', 'y');
+        if (applyConf.toLowerCase() === 'y') {
+          const idResult = await run('id -u');
+          if (idResult.out === '0') {
+            if (isDhcp) {
+              process.stdout.write(`  [ ] Requesting DHCP on ${selectedIface}...`);
+              await applyDhcp(selectedIface);
+              process.stdout.write(`\r  [✓] DHCP applied on ${selectedIface}\n`);
+            } else {
+              process.stdout.write(`  [ ] Applying static IP...`);
+              await applyStaticIp(selectedIface, ip, maskToCidr(mask), gateway || undefined);
+              process.stdout.write(`\r  [✓] ${ip}/${maskToCidr(mask)} on ${selectedIface}\n`);
+            }
+          } else {
+            console.log('  ⚠  Not root — saving to DB only (ip commands skipped).');
+          }
+
+          await db.update(networkInterfaces).set({
+            ip_address: isDhcp ? null : ip,
+            subnet: isDhcp ? null : mask,
+            gateway: isDhcp ? null : (gateway || null),
+            ip_mode: isDhcp ? 'dhcp' : 'static',
+            updated_at: new Date(),
+          }).where(eq(networkInterfaces.name, selectedIface));
+
+          if (selectedType === 'LAN' && ip) {
+            const ex = await db.select().from(systemSettings).where(eq(systemSettings.key, 'lan_ip')).limit(1);
+            if (ex.length === 0) {
+              await db.insert(systemSettings).values({ key: 'lan_ip', value: ip, description: 'LAN IP address' });
+            } else {
+              await db.update(systemSettings).set({ value: ip, updated_at: new Date() }).where(eq(systemSettings.key, 'lan_ip'));
+            }
+          }
+          console.log('  [✓] Saved to database.');
+        }
+        await cli.ask('  Press Enter to return to menu');
+        break;
+      }
+
+      case '3': {
+        // Reset webGUI password
+        console.log();
+        console.log(LINE);
+        console.log(center('Reset WebGUI Password', 62));
+        console.log(LINE);
+        console.log();
+
+        const email = await cli.ask('  Admin email', 'admin@sonaro.local');
+        let newPass = '';
+        let passOk = false;
+
+        while (!passOk) {
+          newPass = await cli.askSecret('  New password (min 8 chars)');
+          if (newPass.length < 8) {
+            console.log('  ✗ Password must be at least 8 characters.');
+          } else {
+            const confirm = await cli.askSecret('  Confirm password');
+            if (confirm !== newPass) {
+              console.log('  ✗ Passwords do not match.');
+            } else {
+              passOk = true;
+            }
+          }
+        }
+
+        const newHash = hashPassword(newPass);
+        const existingAdmin = await db.select().from(users).where(eq(users.email, email)).limit(1);
+        if (existingAdmin.length > 0) {
+          await db.update(users).set({ password_hash: newHash, updated_at: new Date() }).where(eq(users.email, email));
+          console.log('  [✓] Password updated successfully.');
+        } else {
+          console.log(`  ✗ No user found with email: ${email}`);
+        }
+
+        await cli.ask('  Press Enter to return to menu');
+        break;
+      }
+
+      case '4': {
+        // Reset to factory defaults
+        console.log();
+        console.log(LINE);
+        console.log(center('Reset to Factory Defaults', 62));
+        console.log(LINE);
+        console.log();
+        console.log('  ⚠  WARNING: This will erase all configuration including');
+        console.log('     network interfaces, firewall rules, and user settings.');
+        console.log('     The setup wizard will run on next restart.');
+        console.log();
+
+        const confirm1 = await cli.ask('  Type YES to confirm factory reset');
+        if (confirm1 !== 'YES') {
+          console.log('  Cancelled — no changes made.');
+          await cli.ask('  Press Enter to return to menu');
+          break;
+        }
+
+        process.stdout.write('  [ ] Resetting configuration...');
+        await db.update(systemSettings)
+          .set({ value: 'false', updated_at: new Date() })
+          .where(eq(systemSettings.key, 'setup_complete'));
+        process.stdout.write('\r  [✓] Factory reset complete — restart to run setup wizard.\n');
+
+        await cli.ask('  Press Enter to return to menu');
+        break;
+      }
+
+      case '5': {
+        // Reboot
+        console.log();
+        const confirmReboot = await cli.ask('  Reboot system? (y/n)', 'n');
+        if (confirmReboot.toLowerCase() === 'y') {
+          console.log('  Rebooting...');
+          cli.close();
+          await run('reboot');
+          process.exit(0);
+        }
+        break;
+      }
+
+      case '6': {
+        // Halt
+        console.log();
+        const confirmHalt = await cli.ask('  Halt system? (y/n)', 'n');
+        if (confirmHalt.toLowerCase() === 'y') {
+          console.log('  Halting...');
+          cli.close();
+          await run('halt -p');
+          process.exit(0);
+        }
+        break;
+      }
+
+      case '7': {
+        // Ping host
+        console.log();
+        const target = await cli.ask('  Hostname or IP to ping', '8.8.8.8');
+        process.stdout.write(`  Pinging ${target}...`);
+        const r = await run(`ping -c 4 -W 2 ${target}`);
+        console.log();
+        if (r.ok) {
+          console.log(r.out);
+        } else {
+          console.log(`  ✗ Ping failed: ${r.err || r.out}`);
+        }
+        await cli.ask('  Press Enter to return to menu');
+        break;
+      }
+
+      case '8': {
+        // Shell
+        console.log();
+        console.log('  Dropping to shell. Type "exit" to return to console menu.');
+        console.log();
+        cli.close();
+        const { spawnSync } = await import('child_process');
+        spawnSync(process.env.SHELL || '/bin/bash', { stdio: 'inherit' });
+        // Re-open readline after shell exits
+        const { createInterface } = await import('readline');
+        (cli as any).rl = createInterface({ input: process.stdin, output: process.stdout, terminal: true });
+        (cli as any).ask = (prompt: string, def = '') => new Promise<string>(resolve => {
+          const display = def ? `${prompt} [${def}]: ` : `${prompt}: `;
+          (cli as any).rl.question(display, (a: string) => resolve(a.trim() || def));
+        });
+        break;
+      }
+
+      default: {
+        console.log(`  ✗ Invalid option: ${choice}`);
+        await new Promise(r => setTimeout(r, 800));
+        break;
+      }
+    }
+  }
+}

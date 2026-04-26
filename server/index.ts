@@ -37,7 +37,7 @@ import {
   getRecentAlerts,
 } from './suricata.js';
 import { dispatchCLI } from './cli.js';
-import { isSetupComplete, markSetupComplete, runSetupWizard } from './setup.js';
+import { isSetupComplete, markSetupComplete, runSetupWizard, runConsoleMenu } from './setup.js';
 import {
   checkIptablesAvailable,
   getIptablesRules,
@@ -1336,6 +1336,14 @@ async function main() {
 
   // 4. Start web server
   await startWebServer();
+
+  // 5. If running interactively in a TTY, show the pfSense-style console menu.
+  //    This runs in parallel with the web server (non-blocking for startup).
+  if (isTTY && !skipSetup) {
+    runConsoleMenu().catch(err => {
+      console.error('[Console] Menu error:', err);
+    });
+  }
 }
 
 main().catch(err => {
