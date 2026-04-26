@@ -2,6 +2,14 @@
 
 > **Internal reference document.** Covers architecture, data patterns, feature status, coding conventions, and commit rules for every engineer working on this codebase.
 
+## Replit Setup
+
+- **Workflow**: `Start application` — runs `NODE_ENV=development npx tsx server/index.ts` on port 5000
+- **Database**: Replit built-in PostgreSQL (credentials injected via environment secrets)
+- **Environment Variables**: `NODE_ENV`, `PORT`, `JWT_SECRET`, `SONARO_SKIP_SETUP`, `ADMIN_EMAIL`, `ADMIN_PASSWORD` set in shared environment
+- **Default Login**: `admin@sonaro.local` / `Admin123!`
+- The server runs both frontend (via Vite dev middleware) and backend API on port 5000
+
 ---
 
 ## 1. Project Identity
