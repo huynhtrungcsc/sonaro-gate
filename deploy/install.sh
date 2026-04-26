@@ -258,8 +258,8 @@ detect_and_clean() {
     echo -e "  ${YELLOW}  ⚠  All configuration data will be erased (fresh start)${RESET}"
     echo ""
 
-    if [[ -t 0 ]]; then
-        read -rp "  Continue with clean reinstall? [Y/n]: " _CONFIRM
+    if [[ -e /dev/tty ]]; then
+        read -rp "  Continue with clean reinstall? [Y/n]: " _CONFIRM < /dev/tty
         _CONFIRM="${_CONFIRM:-Y}"
         [[ "${_CONFIRM,,}" =~ ^(y|yes)$ ]] || die "Aborted — no changes made"
     else
@@ -312,7 +312,10 @@ _do_cleanup() {
 # Runs before Docker/packages are installed so users set up IP addresses first.
 # ─────────────────────────────────────────────────────────────────────────────
 configure_network() {
-    [[ -t 0 ]] || return 0   # Skip in non-interactive (pipe) mode
+    # Works even when stdin is piped (curl | bash) because we read from /dev/tty
+    # — the physical terminal the admin is sitting at over SSH.
+    # Skip only if no controlling terminal is available at all (true headless CI).
+    [[ -e /dev/tty ]] || return 0
 
     step "Phase 1.5 — Network interface configuration"
     echo ""
@@ -428,7 +431,7 @@ configure_network() {
         fi
     }
 
-    read -rp "  Configure network interfaces now? [Y/n]: " _NET_CONF
+    read -rp "  Configure network interfaces now? [Y/n]: " _NET_CONF < /dev/tty
     _NET_CONF="${_NET_CONF:-Y}"
     if [[ ! "${_NET_CONF,,}" =~ ^(y|yes)$ ]]; then
         info "Skipping network configuration — you can do this later in the web UI."
@@ -446,7 +449,7 @@ configure_network() {
     _print_nic_table
 
     while true; do
-        read -rp "  Select WAN interface number [1]: " _WAN_NUM
+        read -rp "  Select WAN interface number [1]: " _WAN_NUM < /dev/tty
         _WAN_NUM="${_WAN_NUM:-1}"
         if [[ "$_WAN_NUM" =~ ^[0-9]+$ ]] && (( _WAN_NUM >= 1 && _WAN_NUM <= _n )); then
             WAN_IFACE="${ifaces[$(( _WAN_NUM - 1 ))]}"
@@ -461,14 +464,14 @@ configure_network() {
     echo -e "    [1] DHCP   — get IP automatically from ISP ${GREEN}(recommended for most)${RESET}"
     echo -e "    [2] Static — enter IP manually"
     echo ""
-    read -rp "  Choose WAN type [1]: " _WAN_TYPE
+    read -rp "  Choose WAN type [1]: " _WAN_TYPE < /dev/tty
     _WAN_TYPE="${_WAN_TYPE:-1}"
     if [[ "$_WAN_TYPE" == "2" ]]; then
         WAN_DHCP="no"
-        read -rp "  WAN IP address: " WAN_IP
-        read -rp "  Subnet mask [255.255.255.0]: " WAN_MASK
+        read -rp "  WAN IP address: " WAN_IP < /dev/tty
+        read -rp "  Subnet mask [255.255.255.0]: " WAN_MASK < /dev/tty
         WAN_MASK="${WAN_MASK:-255.255.255.0}"
-        read -rp "  Default gateway (leave blank if none): " WAN_GW
+        read -rp "  Default gateway (leave blank if none): " WAN_GW < /dev/tty
     fi
 
     # ── LAN ────────────────────────────────────────────────────────────────────
@@ -500,7 +503,7 @@ configure_network() {
         echo "  ──────────────────────────────────────────────────────"
         echo ""
         while true; do
-            read -rp "  Select LAN interface number [1]: " _LAN_NUM
+            read -rp "  Select LAN interface number [1]: " _LAN_NUM < /dev/tty
             _LAN_NUM="${_LAN_NUM:-1}"
             local _lan_max="${#lan_choices[@]}"
             if [[ "$_LAN_NUM" =~ ^[0-9]+$ ]] && (( _LAN_NUM >= 1 && _LAN_NUM <= _lan_max )); then
@@ -513,9 +516,9 @@ configure_network() {
     echo -e "  → LAN: ${BOLD}${LAN_IFACE}${RESET}"
 
     echo ""
-    read -rp "  LAN IP address [192.168.1.1]: " LAN_IP
+    read -rp "  LAN IP address [192.168.1.1]: " LAN_IP < /dev/tty
     LAN_IP="${LAN_IP:-192.168.1.1}"
-    read -rp "  LAN Subnet mask [255.255.255.0]: " LAN_MASK
+    read -rp "  LAN Subnet mask [255.255.255.0]: " LAN_MASK < /dev/tty
     LAN_MASK="${LAN_MASK:-255.255.255.0}"
 
     local WAN_PREFIX LAN_PREFIX
@@ -537,7 +540,7 @@ configure_network() {
     echo "  ════════════════════════════════════════════════════════════"
     echo ""
 
-    read -rp "  Apply this configuration? [Y/n]: " _NET_APPLY
+    read -rp "  Apply this configuration? [Y/n]: " _NET_APPLY < /dev/tty
     _NET_APPLY="${_NET_APPLY:-Y}"
     if [[ ! "${_NET_APPLY,,}" =~ ^(y|yes)$ ]]; then
         info "Skipping — no network changes made."
@@ -593,7 +596,7 @@ configure_network() {
 METHOD="${INSTALL_METHOD:-}"
 
 if [[ -z "$METHOD" ]]; then
-    if [[ -t 0 ]]; then
+    if [[ -e /dev/tty ]]; then
         echo -e "  ${BOLD}Choose install method:${RESET}"
         echo ""
         echo -e "  ${BOLD}[1] Docker${RESET}  ${GREEN}(recommended)${RESET}"
@@ -604,7 +607,7 @@ if [[ -z "$METHOD" ]]; then
         echo -e "      • Installs Node.js 20 + PostgreSQL + Suricata directly on Ubuntu"
         echo -e "      • Runs as a systemd service: sonaro-gate.service"
         echo ""
-        read -rp "  Choice [1]: " _METHOD_INPUT
+        read -rp "  Choice [1]: " _METHOD_INPUT < /dev/tty
         _METHOD_INPUT="${_METHOD_INPUT:-1}"
         case "$_METHOD_INPUT" in
             2|native|Native|NATIVE) METHOD="native" ;;
@@ -623,9 +626,9 @@ info "Install dir    : ${INSTALL_DIR}"
 info "Port           : ${PORT}"
 echo ""
 
+configure_network
 system_check
 detect_and_clean
-configure_network
 
 # ─────────────────────────────────────────────────────────────────────────────
 # HELPER — Post-install diagnostic check
