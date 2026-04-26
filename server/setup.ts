@@ -134,7 +134,7 @@ export async function isSetupComplete(): Promise<boolean> {
   }
 }
 
-async function markSetupComplete() {
+export async function markSetupComplete() {
   const existing = await db.select()
     .from(systemSettings)
     .where(eq(systemSettings.key, 'setup_complete'))

@@ -359,4 +359,21 @@ export function isApiConfigured(): boolean {
   return !!API_URL;
 }
 
+// ─── Shared authenticated fetch helper ──────────
+// Thin wrapper used across pages and components that need to call backend APIs.
+// Sends the stored JWT token in the Authorization header and throws on HTTP errors.
+export async function apiFetch(path: string, options?: RequestInit): Promise<any> {
+  const res = await fetch(path, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${getStoredToken() ?? ''}`,
+      ...(options?.headers ?? {}),
+    },
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error((json as any).message ?? `HTTP ${res.status}`);
+  return json;
+}
+
 export { API_URL };

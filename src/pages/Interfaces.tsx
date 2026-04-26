@@ -95,6 +95,7 @@ const Interfaces = () => {
   const [isSaving, setIsSaving] = useState(false);
   const [isRoot, setIsRoot] = useState<boolean | null>(null);
   const [applyResult, setApplyResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [isManagementIface, setIsManagementIface] = useState(false);
 
   const [form, setForm] = useState({
     name: '',
@@ -127,8 +128,9 @@ const Interfaces = () => {
     setSelectedIds(prev => (prev.length === 1 && prev[0] === id ? [] : [id]));
   };
 
-  const openEditModal = (iface?: NetworkInterface) => {
+  const openEditModal = async (iface?: NetworkInterface) => {
     setApplyResult(null);
+    setIsManagementIface(false);
     if (iface) {
       setEditingInterface(iface);
       setForm({
@@ -142,6 +144,18 @@ const Interfaces = () => {
         status: iface.status,
         description: iface.description ?? '',
       });
+      // Check if the admin is currently connected through this interface
+      if (iface.ip_address) {
+        try {
+          const data = await apiFetch('/api/system/client-ip');
+          const clientIp: string = data.client_ip ?? '';
+          // Extract host portion of client IP (strip port if any)
+          const clientHost = clientIp.split(':')[0];
+          setIsManagementIface(clientHost === iface.ip_address);
+        } catch {
+          setIsManagementIface(false);
+        }
+      }
     } else {
       setEditingInterface(null);
       setForm({
@@ -505,6 +519,17 @@ const Interfaces = () => {
           </DialogHeader>
 
           <div className="forti-modal-body space-y-4">
+
+            {/* Management interface warning */}
+            {isManagementIface && (
+              <div className="flex items-start gap-2 p-3 bg-red-50 border border-red-400 rounded text-[11px] text-red-800">
+                <AlertTriangle size={14} className="shrink-0 mt-0.5 text-red-600" />
+                <div>
+                  <p className="font-bold text-red-700 mb-0.5">Active management interface — disconnect risk</p>
+                  <p>You are currently connected to the console <strong>through this interface</strong>. Changing the IP address, subnet, or gateway will terminate your browser session immediately. Ensure you have an alternate access path before applying changes.</p>
+                </div>
+              </div>
+            )}
 
             {/* Root status note */}
             {isRoot === false && (

@@ -58,7 +58,7 @@ import UserGroups from "./pages/UserGroups";
 import LocalUsers from "./pages/LocalUsers";
 import AuthServers from "./pages/AuthServers";
 import NotFound from "./pages/NotFound";
-
+import SetupWizard from "./pages/SetupWizard";
 
 const P = ({ children }: { children: React.ReactNode }) => (
   <ProtectedRoute>{children}</ProtectedRoute>
@@ -75,6 +75,9 @@ const App = () => (
           <Routes>
             {/* Public */}
             <Route path="/auth" element={<Auth />} />
+
+            {/* Setup wizard — protected (need to be logged in) but shown before main UI */}
+            <Route path="/setup" element={<P><SetupWizard /></P>} />
 
             {/* Protected */}
             <Route path="/" element={<P><Index /></P>} />

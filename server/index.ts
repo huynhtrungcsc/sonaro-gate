@@ -37,7 +37,7 @@ import {
   getRecentAlerts,
 } from './suricata.js';
 import { dispatchCLI } from './cli.js';
-import { isSetupComplete, runSetupWizard } from './setup.js';
+import { isSetupComplete, markSetupComplete, runSetupWizard } from './setup.js';
 import {
   checkIptablesAvailable,
   getIptablesRules,
@@ -118,6 +118,125 @@ async function startWebServer() {
       setupComplete: setupDone,
       warning: !root ? 'Not running as root — iptables/ip commands disabled' : null,
     });
+  });
+
+  // ── Setup wizard APIs ─────────────────────────────
+  // Public — checked before auth so the wizard page can display correctly.
+  app.get('/api/setup/status', async (_req, res) => {
+    const complete = await isSetupComplete();
+    const ifaces = complete ? [] : await db.select().from(networkInterfaces);
+    res.json({ complete, interfaces: ifaces });
+  });
+
+  // Protected — only admins may complete setup.
+  app.post('/api/setup/apply', requireAuth, async (req, res) => {
+    const { wan, lan, adminPassword } = req.body as {
+      wan: { name: string; mode: 'dhcp' | 'static'; ip?: string; subnet?: string; gateway?: string };
+      lan: { name: string; ip: string; subnet: string };
+      adminPassword?: string;
+    };
+
+    if (!wan?.name || !lan?.name || !lan?.ip || !lan?.subnet) {
+      return res.status(400).json({ success: false, message: 'wan.name, lan.name, lan.ip, lan.subnet required' });
+    }
+
+    const root = await isRoot();
+
+    // 1. Persist WAN config to DB
+    await db.delete(networkInterfaces).where(eq(networkInterfaces.type, 'WAN')).catch(() => {});
+    const wanData = {
+      name: wan.name, type: 'WAN' as const, status: 'up' as const,
+      ip_address: wan.mode === 'dhcp' ? null : (wan.ip || null),
+      subnet: wan.mode === 'dhcp' ? null : (wan.subnet || null),
+      gateway: wan.gateway || null,
+      ip_mode: wan.mode,
+    };
+    const [exWan] = await db.select().from(networkInterfaces).where(eq(networkInterfaces.name, wan.name)).limit(1);
+    if (exWan) {
+      await db.update(networkInterfaces).set(wanData).where(eq(networkInterfaces.name, wan.name));
+    } else {
+      await db.insert(networkInterfaces).values(wanData);
+    }
+
+    // 2. Persist LAN config to DB
+    const lanData = {
+      name: lan.name, type: 'LAN' as const, status: 'up' as const,
+      ip_address: lan.ip, subnet: lan.subnet, gateway: null, ip_mode: 'static' as const,
+    };
+    const [exLan] = await db.select().from(networkInterfaces).where(eq(networkInterfaces.name, lan.name)).limit(1);
+    if (exLan) {
+      await db.update(networkInterfaces).set(lanData).where(eq(networkInterfaces.name, lan.name));
+    } else {
+      await db.insert(networkInterfaces).values(lanData);
+    }
+
+    // 3. Change admin password if provided
+    if (adminPassword && adminPassword.length >= 8) {
+      const { hashPassword } = await import('./auth.js');
+      const hashed = await hashPassword(adminPassword);
+      await db.update(users).set({ password_hash: hashed }).where(eq(users.email, 'admin@sonaro.local')).catch(() => {});
+    }
+
+    // 4. Mark setup complete
+    await markSetupComplete();
+
+    // 5. Send response immediately, then apply OS config in background
+    res.json({
+      success: true,
+      message: root
+        ? `Setup complete. LAN management: http://${lan.ip} — Applying network config in background…`
+        : `Setup complete (saved to database). Run with sudo to apply OS network config.`,
+      lanIp: lan.ip,
+      root,
+    });
+
+    // 6. Fire-and-forget OS apply (can restart interfaces / disconnect WAN client)
+    setImmediate(async () => {
+      if (!root) return;
+      try {
+        // Apply LAN static IP
+        await applyInterfaceIP(lan.name, lan.ip, lan.subnet, undefined);
+
+        // Apply WAN
+        if (wan.mode === 'static' && wan.ip && wan.subnet) {
+          await applyInterfaceIP(wan.name, wan.ip, wan.subnet, wan.gateway);
+        } else if (wan.mode === 'dhcp') {
+          await hostExec(`ip addr flush dev ${wan.name} 2>/dev/null || true`);
+        }
+
+        // Enable IP forwarding + NAT masquerade
+        await hostExec('sysctl -w net.ipv4.ip_forward=1 2>/dev/null || true');
+        await hostExec(`iptables -t nat -A POSTROUTING -o ${wan.name} -j MASQUERADE 2>/dev/null || true`);
+
+        // Persist via netplan
+        const allIfaces = await db.select().from(networkInterfaces);
+        const ifaces = allIfaces.map(i => ({
+          name: i.name,
+          ip_address: i.ip_address,
+          subnet: i.subnet,
+          gateway: i.gateway,
+          dhcp: i.ip_mode === 'dhcp',
+        }));
+        await applyNetplanConfig(ifaces);
+
+        // Start DHCP client for WAN if needed
+        if (wan.mode === 'dhcp') {
+          await hostExec(`dhclient ${wan.name} 2>/dev/null || dhcpcd ${wan.name} 2>/dev/null || true`).catch(() => {});
+        }
+
+        console.log('[Setup] Background apply complete');
+      } catch (e: any) {
+        console.error('[Setup] Background apply error:', e.message);
+      }
+    });
+  });
+
+  // Returns the client's remote IP — used by the UI to warn when editing the
+  // interface they are currently connected through.
+  app.get('/api/system/client-ip', requireAuth, (req, res) => {
+    const raw = req.socket.remoteAddress || req.ip || '';
+    const ip = raw.replace(/^::ffff:/, '');
+    res.json({ ip });
   });
 
   // ── Auth (PostgREST /rpc/authenticate) ───────────
