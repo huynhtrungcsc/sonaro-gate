@@ -82,7 +82,6 @@ export default function SetupWizard() {
   useEffect(() => {
     apiFetch('/api/setup/status')
       .then((data: any) => {
-        if (data.complete) { navigate('/', { replace: true }); return; }
         const list: NicInfo[] = data.interfaces || [];
         setNics(list);
         const wan = list.find(n => n.type === 'WAN') ?? list[0];

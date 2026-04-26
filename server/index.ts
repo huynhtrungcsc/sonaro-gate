@@ -124,7 +124,7 @@ async function startWebServer() {
   // Public — checked before auth so the wizard page can display correctly.
   app.get('/api/setup/status', async (_req, res) => {
     const complete = await isSetupComplete();
-    const ifaces = complete ? [] : await db.select().from(networkInterfaces);
+    const ifaces = await db.select().from(networkInterfaces);
     res.json({ complete, interfaces: ifaces });
   });
 

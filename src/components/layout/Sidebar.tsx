@@ -178,6 +178,7 @@ const navigation: NavSection[] = [
       { label: 'High Availability', path: '/system/ha' },
       { label: 'Config Backup', path: '/system/backup' },
       { label: 'Full System Backup', path: '/system/full-backup' },
+      { label: 'Setup Wizard', path: '/setup' },
     ],
   },
 ];
