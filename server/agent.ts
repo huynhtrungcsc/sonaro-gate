@@ -307,89 +307,149 @@ async function detectIpMode(ifaceName: string): Promise<'dhcp' | 'static' | 'unc
   }
 }
 
+/**
+ * Convert a CIDR prefix length (e.g. 24) to a dotted-decimal subnet mask.
+ */
+function prefixToMask(prefix: number): string {
+  const mask = prefix === 0 ? 0 : (0xFFFFFFFF << (32 - prefix)) >>> 0;
+  return [
+    (mask >>> 24) & 255,
+    (mask >>> 16) & 255,
+    (mask >>> 8) & 255,
+    mask & 255,
+  ].join('.');
+}
+
+/**
+ * Return true if the interface name is a virtual / internal interface that
+ * should be excluded from the firewall management console.
+ */
+function isVirtualIface(name: string): boolean {
+  if (name === 'lo') return true;
+  if (name.startsWith('docker')) return true;
+  if (name.startsWith('veth')) return true;
+  if (name.startsWith('br-')) return true;
+  if (name.startsWith('virbr')) return true;
+  if (name.startsWith('tun')) return true;
+  if (name.startsWith('tap')) return true;
+  if (name.startsWith('dummy')) return true;
+  return false;
+}
+
 async function syncRealNetworkInterfaces() {
   try {
-    const [nets, netStats, wanIface] = await Promise.all([
+    // ── Primary source: `ip -j link show` ──────────────────────────────────
+    // This is the authoritative list of ALL kernel interfaces, including
+    // interfaces that are DOWN and have no IP address assigned — which
+    // systeminformation skips because it filters by having an IPv4/IPv6 addr.
+    const { stdout: linkRaw } = await execAsync('ip -j link show 2>/dev/null').catch(() => ({ stdout: '[]' }));
+    const { stdout: addrRaw } = await execAsync('ip -j addr show 2>/dev/null').catch(() => ({ stdout: '[]' }));
+
+    let links: any[] = [];
+    let addrs: any[] = [];
+    try { links = JSON.parse(linkRaw); } catch { /* ip not available (dev env) */ }
+    try { addrs = JSON.parse(addrRaw); } catch { /* ip not available (dev env) */ }
+
+    // Build lookup: ifname → addr info
+    const addrMap: Record<string, any> = {};
+    for (const a of addrs) addrMap[a.ifname] = a;
+
+    // ── Supplementary: systeminformation for speed / duplex / traffic stats ─
+    const [siNets, netStats, wanIface] = await Promise.all([
       si.networkInterfaces(),
       si.networkStats(),
       detectWanInterface(),
     ]);
 
-    const ifaceArray = Array.isArray(nets) ? nets : [nets];
+    const siArr = Array.isArray(siNets) ? siNets : [siNets];
+    const siMap: Record<string, any> = {};
+    for (const n of siArr) siMap[n.iface] = n;
+
     const statMap: Record<string, any> = {};
     for (const s of netStats) statMap[s.iface] = s;
 
-    // Filter out loopback and virtual/tunnel interfaces for type classification
-    const physicalIfaces = ifaceArray.filter(i => {
-      if (i.internal) return false; // loopback
-      const name = i.iface;
-      // Skip docker/bridge/tun/tap/veth virtual interfaces for classification
-      if (name.startsWith('docker') || name.startsWith('veth') ||
-          name.startsWith('br-') || name === 'virbr0') return false;
-      return true;
-    });
+    // ── If `ip` command unavailable (development), fall back to si list ─────
+    const useIpCmd = links.length > 0;
+    const physicalLinks = useIpCmd
+      ? links.filter(l => !isVirtualIface(l.ifname) && l.link_type !== 'loopback')
+      : siArr
+          .filter(i => !i.internal && !isVirtualIface(i.iface))
+          .map(i => ({ ifname: i.iface, operstate: i.operstate, address: i.mac, mtu: i.mtu, flags: [] }));
 
-    // Build ordered list of non-WAN physical ifaces for index-based classification
-    const nonWanPhysical = physicalIfaces.filter(i => i.iface !== wanIface);
+    // Build ordered list of non-WAN interfaces for index-based type assignment
+    const nonWanLinks = physicalLinks.filter(l => l.ifname !== wanIface);
 
-    for (const iface of physicalIfaces) {
-      const stat = statMap[iface.iface] ?? {};
+    for (const link of physicalLinks) {
+      const name: string = link.ifname;
+      const siInfo = siMap[name] ?? {};
+      const stat   = statMap[name] ?? {};
+      const addrInfo = addrMap[name];
 
-      // Determine type
-      const isWan = wanIface ? iface.iface === wanIface : physicalIfaces.indexOf(iface) === 0;
+      // ── IP address from `ip addr show` ─────────────────────────────────
+      const inet = addrInfo?.addr_info?.find((a: any) => a.family === 'inet');
+      const ip     = inet?.local ?? (siInfo.ip4 && siInfo.ip4.trim() ? siInfo.ip4.trim() : null);
+      const subnet = inet
+        ? prefixToMask(inet.prefixlen)
+        : (siInfo.ip4subnet && siInfo.ip4subnet.trim() ? siInfo.ip4subnet.trim() : null);
+
+      // ── Link state ──────────────────────────────────────────────────────
+      // `ip link show` reports 'UP' / 'DOWN' / 'UNKNOWN'
+      // UNKNOWN on virtual NICs that are technically active → treat as up
+      const opState: string = (link.operstate ?? siInfo.operstate ?? 'unknown').toUpperCase();
+      const status  = (opState === 'UP' || opState === 'UNKNOWN') ? 'up' : 'down';
+
+      // ── Interface type (WAN / LAN / OPT) ───────────────────────────────
+      const isWan = wanIface ? name === wanIface : physicalLinks.indexOf(link) === 0;
       let type: string;
       if (isWan) {
         type = 'WAN';
       } else {
-        const idx = nonWanPhysical.indexOf(iface);
+        const idx = nonWanLinks.findIndex(l => l.ifname === name);
         type = idx === 0 ? 'LAN' : 'OPT';
       }
 
-      // Fix: VMs report speed = -1 for virtual NICs, treat as null
-      const speedRaw = iface.speed;
-      const speed = (speedRaw && speedRaw > 0) ? `${speedRaw} Mbps` : null;
+      // ── Speed / duplex from systeminformation (ethtool-based) ───────────
+      const speedRaw = siInfo.speed;
+      const speed    = (speedRaw && speedRaw > 0) ? `${speedRaw} Mbps` : null;
+      const duplex   = siInfo.duplex && siInfo.duplex.trim() ? siInfo.duplex.trim() : 'full';
 
-      // Fix: empty string duplex from some drivers → default 'full'
-      const duplex = iface.duplex && iface.duplex.trim() ? iface.duplex.trim() : 'full';
+      const mac  = link.address ?? siInfo.mac ?? null;
+      const mtu  = link.mtu ?? siInfo.mtu ?? 1500;
 
-      // Fix: ip4 can be empty string on unconfigured interfaces
-      const ip = iface.ip4 && iface.ip4.trim() ? iface.ip4.trim() : null;
-      const subnet = iface.ip4subnet && iface.ip4subnet.trim() ? iface.ip4subnet.trim() : null;
-
-      // Detect DHCP vs Static — check OS routing table and lease files
-      const ip_mode = await detectIpMode(iface.iface);
+      // ── IP mode (DHCP / static / unconfigured) ──────────────────────────
+      const ip_mode = await detectIpMode(name);
 
       const data = {
-        name: iface.iface,
+        name,
         type,
-        status: iface.operstate === 'up' ? 'up' : 'down',
+        status,
         ip_address: ip,
         subnet,
-        mac: iface.mac || null,
+        mac,
         speed,
         duplex,
-        mtu: iface.mtu || 1500,
+        mtu,
         ip_mode,
-        rx_bytes: stat.rx_bytes || 0,
-        tx_bytes: stat.tx_bytes || 0,
-        rx_packets: stat.rx_packets || 0,
-        tx_packets: stat.tx_packets || 0,
+        rx_bytes:    stat.rx_bytes    || 0,
+        tx_bytes:    stat.tx_bytes    || 0,
+        rx_packets:  stat.rx_packets  || 0,
+        tx_packets:  stat.tx_packets  || 0,
       };
 
       const existing = await db
         .select()
         .from(networkInterfaces)
-        .where(eq(networkInterfaces.name, iface.iface))
+        .where(eq(networkInterfaces.name, name))
         .limit(1);
 
       if (existing.length === 0) {
         await db.insert(networkInterfaces).values(data);
-        console.log(`[Agent] Discovered interface: ${iface.iface} (${type}) ${ip ?? 'no IP'} [${ip_mode}]`);
+        console.log(`[Agent] Discovered: ${name} (${type}) ${ip ?? 'no IP'} [${ip_mode}] [${status}]`);
       } else {
         await db
           .update(networkInterfaces)
           .set({ ...data, updated_at: new Date() })
-          .where(eq(networkInterfaces.name, iface.iface));
+          .where(eq(networkInterfaces.name, name));
       }
     }
   } catch (err) {
