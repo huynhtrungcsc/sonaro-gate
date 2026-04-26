@@ -736,6 +736,7 @@ export async function runConsoleMenu(): Promise<void> {
   if (!process.stdin.isTTY || !process.stdout.isTTY) return;
 
   const cli = createCLI();
+  const LINE = '═'.repeat(62);
 
   while (true) {
     const status = await getIfaceStatus();
