@@ -861,95 +861,160 @@ export async function runConsoleMenu(): Promise<void> {
       }
 
       case '2': {
-        // Set interface IP
+        // Set interface IP — show ALL detected NICs, no pre-assignment required
         console.log();
         console.log(LINE);
-        console.log(center('Set Interface IP Address', 62));
+        console.log(center('Set Interface(s) IP Address', 62));
         console.log(LINE);
         console.log();
 
-        const rows = await db.select().from(systemSettings);
-        const wanIface = rows.find(r => r.key === 'wan_interface')?.value ?? '';
-        const lanIface = rows.find(r => r.key === 'lan_interface')?.value ?? '';
+        console.log('  Detecting network interfaces...');
+        const allNics = await detectNics();
 
-        if (!wanIface && !lanIface) {
-          console.log('  ✗ No interfaces assigned. Use option 1 first.');
-          await cli.ask('  Press Enter'); break;
+        if (allNics.length === 0) {
+          console.log('  ✗ No network interfaces detected.');
+          await cli.ask('  Press Enter to return to menu');
+          break;
         }
 
-        console.log('  Which interface to configure?');
-        if (wanIface) console.log(`    (1) WAN — ${wanIface}`);
-        if (lanIface) console.log(`    (2) LAN — ${lanIface}`);
-        console.log();
-
-        const ifaceChoice = await cli.ask('  Enter option');
-        const selectedIface = ifaceChoice === '1' ? wanIface : ifaceChoice === '2' ? lanIface : null;
-        const selectedType = ifaceChoice === '1' ? 'WAN' : 'LAN';
-
-        if (!selectedIface) {
-          console.log('  ✗ Invalid option.'); await cli.ask('  Press Enter'); break;
-        }
+        // Load DB assignments and current IPs for display
+        const settingRows = await db.select().from(systemSettings);
+        const dbWan = settingRows.find(r => r.key === 'wan_interface')?.value ?? '';
+        const dbLan = settingRows.find(r => r.key === 'lan_interface')?.value ?? '';
+        const dbIfaces = await db.select().from(networkInterfaces);
 
         console.log();
-        console.log(`  Configuring ${selectedType} (${selectedIface}):`);
-        console.log('    (1) DHCP — automatic (WAN only)');
-        console.log('    (2) Static IP');
-        const modeChoice = await cli.ask('  Choose mode', selectedType === 'LAN' ? '2' : '1');
-        const isDhcp = modeChoice !== '2';
+        console.log('  Available interfaces:');
+        const line2 = '─'.repeat(62);
+        console.log('  ' + line2);
+        allNics.forEach((nic, i) => {
+          const dbRow = dbIfaces.find(r => r.name === nic.name);
+          const ipDisplay = dbRow?.ip_address
+            ? `${dbRow.ip_address}${dbRow.subnet ? '/' + maskToCidr(dbRow.subnet) : ''}  [${dbRow.ip_mode ?? 'static'}]`
+            : nic.ip4 !== '(no IP)' ? nic.ip4 : '(no IP)';
+          const role = nic.name === dbWan ? ' [WAN]' : nic.name === dbLan ? ' [LAN]' : '';
+          const state = nic.operstate === 'up' ? 'UP  ' : 'DOWN';
+          console.log(`  [${i + 1}] ${nic.name.padEnd(12)} ${state}  ${ipDisplay}${role}`);
+        });
+        console.log('  ' + line2);
+        console.log();
 
-        if (isDhcp && selectedType === 'LAN') {
-          console.log('  ✗ LAN must use a static IP.'); await cli.ask('  Press Enter'); break;
+        const ifaceNumStr = await cli.ask(`  Select interface to configure (1-${allNics.length})`);
+        const ifaceNum = parseInt(ifaceNumStr);
+        if (isNaN(ifaceNum) || ifaceNum < 1 || ifaceNum > allNics.length) {
+          console.log('  ✗ Invalid selection.');
+          await cli.ask('  Press Enter to return to menu');
+          break;
         }
 
-        let ip = '';
-        let mask = '';
-        let gateway = '';
+        const selectedNic = allNics[ifaceNum - 1];
+        // Determine role from DB
+        const nicRole = selectedNic.name === dbWan ? 'WAN'
+          : selectedNic.name === dbLan ? 'LAN' : 'OPT';
 
-        if (!isDhcp) {
-          const currentRows = await db.select().from(networkInterfaces).where(eq(networkInterfaces.name, selectedIface)).limit(1);
-          const current = currentRows[0];
-          ip = await cli.ask(`  IP address`, current?.ip_address ?? '');
-          mask = await cli.ask(`  Subnet mask`, current?.subnet ?? '255.255.255.0');
-          if (selectedType === 'WAN') {
-            gateway = await cli.ask(`  Default gateway (leave blank to skip)`, current?.gateway ?? '');
+        console.log();
+        console.log(`  Configuring: ${selectedNic.name} (${nicRole})`);
+        console.log('  ' + line2);
+        console.log('    (1) DHCP   — get IP automatically');
+        console.log('    (2) Static — enter IP manually');
+        console.log();
+
+        const modeChoice2 = await cli.ask('  Choose mode', nicRole === 'LAN' ? '2' : '1');
+        const isDhcp2 = modeChoice2 !== '2';
+
+        if (isDhcp2 && nicRole === 'LAN') {
+          console.log('  ⚠  LAN interface should use a static IP for reliable access.');
+          const proceed = await cli.ask('  Continue with DHCP anyway? (y/n)', 'n');
+          if (proceed.toLowerCase() !== 'y') {
+            await cli.ask('  Press Enter to return to menu');
+            break;
           }
         }
 
-        const applyConf = await cli.ask('  Apply? (y/n)', 'y');
-        if (applyConf.toLowerCase() === 'y') {
-          const idResult = await run('id -u');
-          if (idResult.out === '0') {
-            if (isDhcp) {
-              process.stdout.write(`  [ ] Requesting DHCP on ${selectedIface}...`);
-              await applyDhcp(selectedIface);
-              process.stdout.write(`\r  [✓] DHCP applied on ${selectedIface}\n`);
+        let newIp = '';
+        let newMask = '';
+        let newGateway = '';
+
+        if (!isDhcp2) {
+          const curRow = dbIfaces.find(r => r.name === selectedNic.name);
+          const curIp = curRow?.ip_address ?? (selectedNic.ip4 !== '(no IP)' ? selectedNic.ip4.split('/')[0] : '');
+          const curMask = curRow?.subnet ?? '255.255.255.0';
+          const curGw = curRow?.gateway ?? '';
+
+          newIp = await cli.ask('  IP address', curIp);
+          newMask = await cli.ask('  Subnet mask', curMask);
+
+          if (nicRole !== 'LAN') {
+            newGateway = await cli.ask('  Default gateway (leave blank to skip)', curGw);
+          }
+        }
+
+        // Summary
+        console.log();
+        console.log('  Configuration to apply:');
+        console.log(`    Interface : ${selectedNic.name}`);
+        console.log(`    Mode      : ${isDhcp2 ? 'DHCP' : `Static ${newIp}/${maskToCidr(newMask)}${newGateway ? '  gw: ' + newGateway : ''}`}`);
+        console.log();
+
+        const applyConf2 = await cli.ask('  Apply this configuration? (y/n)', 'y');
+        if (applyConf2.toLowerCase() === 'y') {
+          const idResult2 = await run('id -u');
+          const isRoot2 = idResult2.out === '0';
+
+          if (isRoot2) {
+            if (isDhcp2) {
+              process.stdout.write(`  [ ] Requesting DHCP lease on ${selectedNic.name}...`);
+              const leaseIp = await applyDhcp(selectedNic.name);
+              newIp = leaseIp || '';
+              process.stdout.write(`\r  [✓] DHCP applied on ${selectedNic.name}${leaseIp ? '  →  ' + leaseIp : ''}\n`);
             } else {
-              process.stdout.write(`  [ ] Applying static IP...`);
-              await applyStaticIp(selectedIface, ip, maskToCidr(mask), gateway || undefined);
-              process.stdout.write(`\r  [✓] ${ip}/${maskToCidr(mask)} on ${selectedIface}\n`);
+              process.stdout.write(`  [ ] Setting ${newIp}/${maskToCidr(newMask)} on ${selectedNic.name}...`);
+              await applyStaticIp(selectedNic.name, newIp, maskToCidr(newMask), newGateway || undefined);
+              process.stdout.write(`\r  [✓] ${newIp}/${maskToCidr(newMask)} applied on ${selectedNic.name}\n`);
             }
           } else {
-            console.log('  ⚠  Not root — saving to DB only (ip commands skipped).');
+            console.log('  ⚠  Not running as root — saving to database only.');
+            console.log('     Re-run with sudo to apply IP changes to the OS.');
           }
 
-          await db.update(networkInterfaces).set({
-            ip_address: isDhcp ? null : ip,
-            subnet: isDhcp ? null : mask,
-            gateway: isDhcp ? null : (gateway || null),
-            ip_mode: isDhcp ? 'dhcp' : 'static',
-            updated_at: new Date(),
-          }).where(eq(networkInterfaces.name, selectedIface));
+          // Upsert to networkInterfaces table
+          const existingRow = dbIfaces.find(r => r.name === selectedNic.name);
+          if (existingRow) {
+            await db.update(networkInterfaces).set({
+              ip_address: isDhcp2 ? (newIp || null) : newIp,
+              subnet: isDhcp2 ? null : newMask,
+              gateway: isDhcp2 ? null : (newGateway || null),
+              ip_mode: isDhcp2 ? 'dhcp' : 'static',
+              status: 'up',
+              updated_at: new Date(),
+            }).where(eq(networkInterfaces.name, selectedNic.name));
+          } else {
+            await db.insert(networkInterfaces).values({
+              name: selectedNic.name,
+              type: nicRole,
+              status: 'up',
+              ip_address: isDhcp2 ? (newIp || null) : newIp,
+              subnet: isDhcp2 ? null : newMask,
+              gateway: isDhcp2 ? null : (newGateway || null),
+              ip_mode: isDhcp2 ? 'dhcp' : 'static',
+            });
+          }
 
-          if (selectedType === 'LAN' && ip) {
-            const ex = await db.select().from(systemSettings).where(eq(systemSettings.key, 'lan_ip')).limit(1);
-            if (ex.length === 0) {
-              await db.insert(systemSettings).values({ key: 'lan_ip', value: ip, description: 'LAN IP address' });
+          // If LAN role — update lan_ip system setting (used for management URL)
+          if (nicRole === 'LAN' && newIp) {
+            const exLan = await db.select().from(systemSettings).where(eq(systemSettings.key, 'lan_ip')).limit(1);
+            if (exLan.length === 0) {
+              await db.insert(systemSettings).values({ key: 'lan_ip', value: newIp, description: 'LAN IP address' });
             } else {
-              await db.update(systemSettings).set({ value: ip, updated_at: new Date() }).where(eq(systemSettings.key, 'lan_ip'));
+              await db.update(systemSettings).set({ value: newIp, updated_at: new Date() }).where(eq(systemSettings.key, 'lan_ip'));
             }
           }
-          console.log('  [✓] Saved to database.');
+
+          console.log('  [✓] Configuration saved to database.');
+        } else {
+          console.log('  Cancelled — no changes made.');
         }
+
         await cli.ask('  Press Enter to return to menu');
         break;
       }
