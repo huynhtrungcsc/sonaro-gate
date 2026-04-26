@@ -121,10 +121,10 @@ const Interfaces = () => {
     toast.success('Interface data refreshed from system');
   };
 
+  // Single-select: clicking always selects exactly that row.
+  // Click the same row again to deselect it (click away = deselect).
   const handleSelect = (id: string) => {
-    setSelectedIds(prev =>
-      prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
-    );
+    setSelectedIds(prev => (prev.length === 1 && prev[0] === id ? [] : [id]));
   };
 
   const openEditModal = (iface?: NetworkInterface) => {
@@ -322,8 +322,10 @@ const Interfaces = () => {
             onClick={() => selectedInterface && openEditModal(selectedInterface)}
             className="forti-toolbar-btn"
             disabled={selectedIds.length !== 1}
+            title={selectedInterface ? `Edit ${selectedInterface.name}` : 'Select an interface first'}
           >
-            <Edit size={12} /> Edit
+            <Edit size={12} />
+            {selectedInterface ? `Edit — ${selectedInterface.name}` : 'Edit'}
           </button>
           <button
             onClick={() => setDeleteDialogOpen(true)}
@@ -433,11 +435,19 @@ const Interfaces = () => {
               </tr>
             )}
 
-            {filteredInterfaces.map((iface) => (
+            {filteredInterfaces.map((iface) => {
+              const isSelected = selectedIds.includes(iface.id);
+              return (
               <tr
                 key={iface.id}
                 onClick={() => handleSelect(iface.id)}
-                className={cn("cursor-pointer", selectedIds.includes(iface.id) && "bg-[#fff8e1]")}
+                onDoubleClick={() => openEditModal(iface)}
+                className={cn(
+                  "cursor-pointer select-none transition-colors",
+                  isSelected
+                    ? "bg-blue-50 border-l-[3px] border-l-blue-500"
+                    : "hover:bg-[#f5f5f5]"
+                )}
               >
                 <td>
                   <span className={cn(
@@ -479,7 +489,8 @@ const Interfaces = () => {
                   {formatBytes(iface.rx_bytes ?? 0)} / {formatBytes(iface.tx_bytes ?? 0)}
                 </td>
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
       </div>
