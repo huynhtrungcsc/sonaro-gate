@@ -1338,8 +1338,9 @@ async function main() {
   await startWebServer();
 
   // 5. If running interactively in a TTY, show the pfSense-style console menu.
-  //    This runs in parallel with the web server (non-blocking for startup).
-  if (isTTY && !skipSetup) {
+  //    Always show when TTY is available — SONARO_SKIP_SETUP only skips the
+  //    initial wizard, not the ongoing interactive console menu.
+  if (isTTY) {
     runConsoleMenu().catch(err => {
       console.error('[Console] Menu error:', err);
     });
