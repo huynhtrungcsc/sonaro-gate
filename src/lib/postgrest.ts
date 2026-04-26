@@ -91,6 +91,12 @@ async function request<T = any>(
   try {
     const res = await fetch(urlStr, { ...options, headers });
     if (!res.ok) {
+      // Auto-logout on 401 — token expired or invalid
+      if (res.status === 401) {
+        clearSession();
+        window.location.href = '/login';
+        return { data: null, error: new Error('Session expired. Please log in again.') };
+      }
       const body = await res.text();
       let message = `Request failed (${res.status})`;
       try {
@@ -372,7 +378,14 @@ export async function apiFetch(path: string, options?: RequestInit): Promise<any
     },
   });
   const json = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error((json as any).message ?? `HTTP ${res.status}`);
+  if (!res.ok) {
+    if (res.status === 401) {
+      clearSession();
+      window.location.href = '/login';
+      throw new Error('Session expired. Please log in again.');
+    }
+    throw new Error((json as any).message ?? `HTTP ${res.status}`);
+  }
   return json;
 }
 
