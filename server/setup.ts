@@ -217,9 +217,17 @@ async function applyDhcp(iface: string): Promise<string | null> {
   return r.out || null;
 }
 
+interface ExtraIface {
+  name: string;
+  zone: 'DMZ' | 'OPT';
+  ip: string;
+  mask: string;
+}
+
 async function writeNetplanConfig(
   wanIface: string, wanDhcp: boolean, wanIp: string, wanMask: string, wanGateway: string,
   lanIface: string, lanIp: string, lanMask: string,
+  extras: ExtraIface[] = [],
 ): Promise<void> {
   const wanPrefix = maskToCidr(wanMask);
   const lanPrefix = maskToCidr(lanMask);
@@ -250,6 +258,14 @@ async function writeNetplanConfig(
   lines.push('      dhcp4: false');
   lines.push(`      addresses: [${lanIp}/${lanPrefix}]`);
 
+  // DMZ / OPT interfaces
+  for (const extra of extras) {
+    const prefix = maskToCidr(extra.mask);
+    lines.push(`    ${extra.name}:`);
+    lines.push('      dhcp4: false');
+    lines.push(`      addresses: [${extra.ip}/${prefix}]`);
+  }
+
   const yaml = lines.join('\n') + '\n';
   await writeFile('/etc/netplan/90-sonaro.yaml', yaml, { mode: 0o600 });
   await run('netplan apply');
@@ -269,6 +285,7 @@ async function enableNat(wanIface: string): Promise<void> {
 async function saveIfacesToDb(
   wanIface: string, wanDhcp: boolean, wanIp: string | null, wanMask: string, wanGateway: string,
   lanIface: string, lanIp: string, lanMask: string,
+  extras: ExtraIface[] = [],
 ): Promise<void> {
   const upsert = async (data: any) => {
     const ex = await db.select().from(networkInterfaces).where(eq(networkInterfaces.name, data.name)).limit(1);
@@ -291,6 +308,13 @@ async function saveIfacesToDb(
     ip_address: lanIp, subnet: lanMask, gateway: null,
     ip_mode: 'static',
   });
+  for (const extra of extras) {
+    await upsert({
+      name: extra.name, type: extra.zone, status: 'up',
+      ip_address: extra.ip, subnet: extra.mask, gateway: null,
+      ip_mode: 'static',
+    });
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -415,6 +439,46 @@ export async function runSetupWizard(): Promise<void> {
     const lanIp = await cli.ask('  LAN IP address', '192.168.1.1');
     const lanMask = await cli.ask('  LAN Subnet mask', '255.255.255.0');
 
+    // ─── Optional: DMZ / OPT interfaces ────────────────────────
+    const assignedNums = new Set([wanNum, lanNum]);
+    const remainingNics = nics.filter((_, i) => !assignedNums.has(i + 1));
+    const extras: ExtraIface[] = [];
+
+    if (remainingNics.length > 0) {
+      console.log();
+      console.log('  Optional Interfaces (DMZ / OPT)');
+      console.log(line);
+      console.log(`  ${remainingNics.length} unassigned interface(s) detected:`);
+      remainingNics.forEach((nic, i) => {
+        const speed = nic.speed ? ` ${nic.speed} Mbps` : '';
+        const state = nic.operstate === 'up' ? '↑ UP' : '↓ DOWN';
+        console.log(`    [${i + 1}] ${nic.name.padEnd(12)} ${nic.mac}  ${state}${speed}`);
+      });
+      console.log();
+
+      for (let i = 0; i < remainingNics.length; i++) {
+        const nic = remainingNics[i];
+        const configure = await cli.ask(
+          `  Configure ${nic.name} as DMZ/OPT? (y/n)`, 'n'
+        );
+        if (configure.toLowerCase() !== 'y') continue;
+
+        console.log(`  Zone type for ${nic.name}:`);
+        console.log('    (1) DMZ — public-facing servers (web, mail, etc.)');
+        console.log('    (2) OPT — optional / guest / IoT network');
+        const zoneChoice = await cli.ask('  Choose zone type', '1');
+        const zone: 'DMZ' | 'OPT' = zoneChoice === '2' ? 'OPT' : 'DMZ';
+
+        const defaultIp = zone === 'DMZ' ? '172.16.0.1' : '10.0.0.1';
+        const extraIp = await cli.ask(`  ${zone} IP address`, defaultIp);
+        const extraMask = await cli.ask(`  ${zone} Subnet mask`, '255.255.255.0');
+
+        extras.push({ name: nic.name, zone, ip: extraIp, mask: extraMask });
+        console.log(`  → ${zone}: ${nic.name}  ${extraIp}/${maskToCidr(extraMask)}`);
+        console.log();
+      }
+    }
+
     // ─── Admin Account ──────────────────────────────────────────
     console.log();
     console.log('  Admin Account');
@@ -454,9 +518,15 @@ export async function runSetupWizard(): Promise<void> {
     console.log(`  Hostname : ${hostname}`);
     console.log(`  WAN      : ${wanNic.name}  ${wanDhcp ? 'DHCP' : `${wanIp}/${maskToCidr(wanMask)}  gw: ${wanGateway}`}`);
     console.log(`  LAN      : ${lanNic.name}  ${lanIp}/${maskToCidr(lanMask)}`);
+    for (const ex of extras) {
+      console.log(`  ${ex.zone.padEnd(8)} : ${ex.name}  ${ex.ip}/${maskToCidr(ex.mask)}`);
+    }
     console.log(`  Web UI   : http://${lanIp}:5000`);
     console.log(`  Admin    : ${adminEmail}`);
     console.log(line);
+    console.log();
+    console.log('  Once setup completes, connect a device to the LAN network');
+    console.log(`  and open:  http://${lanIp}:5000`);
     console.log();
 
     const confirm = await cli.ask('  Apply this configuration? (y/n)', 'y');
@@ -479,17 +549,17 @@ export async function runSetupWizard(): Promise<void> {
       await writeNetplanConfig(
         wanNic.name, wanDhcp, wanIp, wanMask, wanGateway,
         lanNic.name, lanIp, lanMask,
+        extras,
       );
       process.stdout.write('\r  [✓] Network config written and applied via netplan\n');
     } catch (e: any) {
       process.stdout.write(`\r  [!] netplan: ${e.message} (will use ip commands)\n`);
-      // Fallback: direct ip commands
       if (!wanDhcp) {
         await applyStaticIp(wanNic.name, wanIp, maskToCidr(wanMask), wanGateway);
       }
     }
 
-    // Step 2: LAN static (ensure it's up even if netplan already did it)
+    // Step 2: LAN static
     process.stdout.write(`  [ ] Configuring LAN (${lanNic.name})...`);
     await applyStaticIp(lanNic.name, lanIp, maskToCidr(lanMask));
     process.stdout.write(`\r  [✓] LAN: ${lanIp}/${maskToCidr(lanMask)} on ${lanNic.name}\n`);
@@ -504,22 +574,29 @@ export async function runSetupWizard(): Promise<void> {
       process.stdout.write(`  [✓] WAN: ${wanIp}/${maskToCidr(wanMask)} on ${wanNic.name}\n`);
     }
 
-    // Step 4: IP forwarding
+    // Step 4: DMZ / OPT interfaces
+    for (const extra of extras) {
+      process.stdout.write(`  [ ] Configuring ${extra.zone} (${extra.name})...`);
+      await applyStaticIp(extra.name, extra.ip, maskToCidr(extra.mask));
+      process.stdout.write(`\r  [✓] ${extra.zone}: ${extra.ip}/${maskToCidr(extra.mask)} on ${extra.name}\n`);
+    }
+
+    // Step 5: IP forwarding
     process.stdout.write(`  [ ] Enabling IP forwarding...`);
     await enableIpForward();
     process.stdout.write('\r  [✓] IP forwarding enabled (persistent)\n');
 
-    // Step 5: NAT masquerade
+    // Step 6: NAT masquerade
     process.stdout.write(`  [ ] Setting up NAT masquerade on ${wanNic.name}...`);
     await enableNat(wanNic.name);
     process.stdout.write(`\r  [✓] NAT masquerade active on ${wanNic.name}\n`);
 
-    // Step 6: Hostname
+    // Step 7: Hostname
     process.stdout.write(`  [ ] Setting hostname...`);
     await run(`hostnamectl set-hostname ${hostname}`);
     process.stdout.write(`\r  [✓] Hostname: ${hostname}\n`);
 
-    // Step 7: Save to database
+    // Step 8: Save to database
     process.stdout.write(`  [ ] Saving to database...`);
 
     // Update admin account
@@ -538,10 +615,11 @@ export async function runSetupWizard(): Promise<void> {
       }
     }
 
-    // Save interfaces
+    // Save interfaces (WAN + LAN + DMZ/OPT)
     await saveIfacesToDb(
       wanNic.name, wanDhcp, wanIp, wanMask, wanGateway,
       lanNic.name, lanIp, lanMask,
+      extras,
     );
 
     // Save settings
