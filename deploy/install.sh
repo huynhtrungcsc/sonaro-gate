@@ -308,6 +308,286 @@ _do_cleanup() {
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
+# PHASE 1.5 — NETWORK INTERFACE CONFIGURATION (pre-install)
+# Runs before Docker/packages are installed so users set up IP addresses first.
+# ─────────────────────────────────────────────────────────────────────────────
+configure_network() {
+    [[ -t 0 ]] || return 0   # Skip in non-interactive (pipe) mode
+
+    step "Phase 1.5 — Network interface configuration"
+    echo ""
+    echo -e "  ${DIM}Configure IP addresses on your network cards before installation.${RESET}"
+    echo -e "  ${DIM}This is required so the firewall can route traffic correctly.${RESET}"
+    echo ""
+
+    # List available interfaces
+    local ifaces=()
+    while IFS= read -r line; do
+        local iface
+        iface=$(echo "$line" | awk -F': ' '{print $2}' | sed 's/@.*//')
+        [[ "$iface" == "lo" ]] && continue
+        ifaces+=("$iface")
+    done < <(ip -o link show 2>/dev/null | grep -v '^[0-9]*: lo')
+
+    if [[ "${#ifaces[@]}" -eq 0 ]]; then
+        warn "No network interfaces detected — skipping network configuration."
+        return 0
+    fi
+
+    _print_nic_table() {
+        echo ""
+        echo -e "  ${BOLD}  Available network interfaces:${RESET}"
+        echo "  ──────────────────────────────────────────────────────"
+        local _idx=1
+        for _ifc in "${ifaces[@]}"; do
+            local _state _addr
+            _state=$(ip -o link show "$_ifc" 2>/dev/null | grep -oP '(?<=state )\S+' || echo "?")
+            _addr=$(ip -4 addr show "$_ifc" 2>/dev/null | grep -oP '(?<=inet )\S+' | head -1 || true)
+            [[ -z "$_addr" ]] && _addr="(no IP)"
+            printf "    [%d] %-14s %-8s %s\n" "$_idx" "$_ifc" "$_state" "$_addr"
+            _idx=$(( _idx + 1 ))
+        done
+        echo "  ──────────────────────────────────────────────────────"
+        echo ""
+    }
+
+    _apply_static() {
+        local _ifc="$1" _ip="$2" _prefix="$3" _gw="$4"
+        ip link set "$_ifc" up 2>/dev/null || true
+        ip addr flush dev "$_ifc" 2>/dev/null || true
+        ip addr add "${_ip}/${_prefix}" dev "$_ifc" 2>/dev/null || true
+        if [[ -n "$_gw" ]]; then
+            ip route del default 2>/dev/null || true
+            ip route add default via "$_gw" dev "$_ifc" 2>/dev/null || true
+        fi
+    }
+
+    _apply_dhcp() {
+        local _ifc="$1"
+        ip link set "$_ifc" up 2>/dev/null || true
+        if command -v dhclient &>/dev/null; then
+            dhclient -v "$_ifc" 2>/dev/null &
+            sleep 4
+        elif command -v dhcpcd &>/dev/null; then
+            dhcpcd "$_ifc" 2>/dev/null &
+            sleep 4
+        fi
+    }
+
+    _mask_to_prefix() {
+        local _mask="$1"
+        # If already a CIDR number, return as-is
+        [[ "$_mask" =~ ^[0-9]+$ ]] && { echo "$_mask"; return; }
+        # Convert dotted-decimal mask to prefix length using pure bash
+        local _bits=0
+        local _o1 _o2 _o3 _o4
+        IFS=. read -r _o1 _o2 _o3 _o4 <<< "$_mask"
+        for _o in "${_o1:-0}" "${_o2:-0}" "${_o3:-0}" "${_o4:-0}"; do
+            local _v=$(( _o ))
+            while (( _v > 0 )); do
+                _bits=$(( _bits + (_v & 1) ))
+                _v=$(( _v >> 1 ))
+            done
+        done
+        echo "$_bits"
+    }
+
+    _write_netplan() {
+        # Args: wan_iface wan_dhcp wan_ip wan_prefix wan_gw lan_iface lan_ip lan_prefix
+        local _wi="$1" _wd="$2" _wip="$3" _wpfx="$4" _wgw="$5"
+        local _li="$6" _lip="$7" _lpfx="$8"
+        local _np_file="/etc/netplan/90-sonaro.yaml"
+        mkdir -p /etc/netplan
+
+        {
+            echo "network:"
+            echo "  version: 2"
+            echo "  renderer: networkd"
+            echo "  ethernets:"
+            echo "    ${_wi}:"
+            if [[ "$_wd" == "yes" ]]; then
+                echo "      dhcp4: true"
+            else
+                echo "      dhcp4: false"
+                echo "      addresses: [${_wip}/${_wpfx}]"
+                if [[ -n "$_wgw" ]]; then
+                    echo "      routes:"
+                    echo "        - to: default"
+                    echo "          via: ${_wgw}"
+                fi
+                echo "      nameservers:"
+                echo "        addresses: [8.8.8.8, 1.1.1.1]"
+            fi
+            echo "    ${_li}:"
+            echo "      dhcp4: false"
+            echo "      addresses: [${_lip}/${_lpfx}]"
+        } > "$_np_file"
+        chmod 600 "$_np_file"
+        if command -v netplan &>/dev/null; then
+            netplan apply 2>/dev/null && ok "netplan applied — config will persist after reboot"
+        fi
+    }
+
+    read -rp "  Configure network interfaces now? [Y/n]: " _NET_CONF
+    _NET_CONF="${_NET_CONF:-Y}"
+    if [[ ! "${_NET_CONF,,}" =~ ^(y|yes)$ ]]; then
+        info "Skipping network configuration — you can do this later in the web UI."
+        return 0
+    fi
+
+    local WAN_IFACE="" LAN_IFACE="" WAN_DHCP="yes"
+    local WAN_IP="" WAN_MASK="255.255.255.0" WAN_GW=""
+    local LAN_IP="192.168.1.1" LAN_MASK="255.255.255.0"
+    local _n="${#ifaces[@]}"
+
+    # ── WAN ────────────────────────────────────────────────────────────────────
+    echo ""
+    echo -e "  ${BOLD}WAN interface${RESET} (connected to internet / upstream router)"
+    _print_nic_table
+
+    while true; do
+        read -rp "  Select WAN interface number [1]: " _WAN_NUM
+        _WAN_NUM="${_WAN_NUM:-1}"
+        if [[ "$_WAN_NUM" =~ ^[0-9]+$ ]] && (( _WAN_NUM >= 1 && _WAN_NUM <= _n )); then
+            WAN_IFACE="${ifaces[$(( _WAN_NUM - 1 ))]}"
+            break
+        fi
+        warn "Invalid selection — enter a number between 1 and ${_n}"
+    done
+    echo -e "  → WAN: ${BOLD}${WAN_IFACE}${RESET}"
+
+    echo ""
+    echo -e "  ${BOLD}WAN IP assignment:${RESET}"
+    echo -e "    [1] DHCP   — get IP automatically from ISP ${GREEN}(recommended for most)${RESET}"
+    echo -e "    [2] Static — enter IP manually"
+    echo ""
+    read -rp "  Choose WAN type [1]: " _WAN_TYPE
+    _WAN_TYPE="${_WAN_TYPE:-1}"
+    if [[ "$_WAN_TYPE" == "2" ]]; then
+        WAN_DHCP="no"
+        read -rp "  WAN IP address: " WAN_IP
+        read -rp "  Subnet mask [255.255.255.0]: " WAN_MASK
+        WAN_MASK="${WAN_MASK:-255.255.255.0}"
+        read -rp "  Default gateway (leave blank if none): " WAN_GW
+    fi
+
+    # ── LAN ────────────────────────────────────────────────────────────────────
+    echo ""
+    echo -e "  ${BOLD}LAN interface${RESET} (connected to your internal network)"
+    echo ""
+    # Filter out WAN from list
+    local lan_choices=()
+    for _ifc in "${ifaces[@]}"; do
+        [[ "$_ifc" == "$WAN_IFACE" ]] && continue
+        lan_choices+=("$_ifc")
+    done
+
+    if [[ "${#lan_choices[@]}" -eq 0 ]]; then
+        warn "Only one interface available — LAN will share with WAN (not recommended)."
+        LAN_IFACE="$WAN_IFACE"
+    else
+        echo -e "  ${BOLD}  Available LAN interfaces:${RESET}"
+        echo "  ──────────────────────────────────────────────────────"
+        local _lidx=1
+        for _ifc in "${lan_choices[@]}"; do
+            local _st _ad
+            _st=$(ip -o link show "$_ifc" 2>/dev/null | grep -oP '(?<=state )\S+' || echo "?")
+            _ad=$(ip -4 addr show "$_ifc" 2>/dev/null | grep -oP '(?<=inet )\S+' | head -1 || true)
+            [[ -z "$_ad" ]] && _ad="(no IP)"
+            printf "    [%d] %-14s %-8s %s\n" "$_lidx" "$_ifc" "$_st" "$_ad"
+            _lidx=$(( _lidx + 1 ))
+        done
+        echo "  ──────────────────────────────────────────────────────"
+        echo ""
+        while true; do
+            read -rp "  Select LAN interface number [1]: " _LAN_NUM
+            _LAN_NUM="${_LAN_NUM:-1}"
+            local _lan_max="${#lan_choices[@]}"
+            if [[ "$_LAN_NUM" =~ ^[0-9]+$ ]] && (( _LAN_NUM >= 1 && _LAN_NUM <= _lan_max )); then
+                LAN_IFACE="${lan_choices[$(( _LAN_NUM - 1 ))]}"
+                break
+            fi
+            warn "Invalid selection — enter a number between 1 and ${_lan_max}"
+        done
+    fi
+    echo -e "  → LAN: ${BOLD}${LAN_IFACE}${RESET}"
+
+    echo ""
+    read -rp "  LAN IP address [192.168.1.1]: " LAN_IP
+    LAN_IP="${LAN_IP:-192.168.1.1}"
+    read -rp "  LAN Subnet mask [255.255.255.0]: " LAN_MASK
+    LAN_MASK="${LAN_MASK:-255.255.255.0}"
+
+    local WAN_PREFIX LAN_PREFIX
+    WAN_PREFIX=$(_mask_to_prefix "$WAN_MASK")
+    LAN_PREFIX=$(_mask_to_prefix "$LAN_MASK")
+
+    # ── Summary ────────────────────────────────────────────────────────────────
+    echo ""
+    echo "  ════════════════════════════════════════════════════════════"
+    echo -e "  ${BOLD}  Network configuration summary${RESET}"
+    echo "  ════════════════════════════════════════════════════════════"
+    if [[ "$WAN_DHCP" == "yes" ]]; then
+        echo -e "    WAN : ${BOLD}${WAN_IFACE}${RESET}  DHCP"
+    else
+        echo -e "    WAN : ${BOLD}${WAN_IFACE}${RESET}  ${WAN_IP}/${WAN_PREFIX}  gw: ${WAN_GW:-none}"
+    fi
+    echo -e "    LAN : ${BOLD}${LAN_IFACE}${RESET}  ${LAN_IP}/${LAN_PREFIX}"
+    echo -e "    Web UI will be at: ${BOLD}${CYAN}http://${LAN_IP}:${PORT}${RESET}"
+    echo "  ════════════════════════════════════════════════════════════"
+    echo ""
+
+    read -rp "  Apply this configuration? [Y/n]: " _NET_APPLY
+    _NET_APPLY="${_NET_APPLY:-Y}"
+    if [[ ! "${_NET_APPLY,,}" =~ ^(y|yes)$ ]]; then
+        info "Skipping — no network changes made."
+        return 0
+    fi
+
+    echo ""
+    info "Applying network configuration..."
+
+    # Apply LAN (static)
+    printf "  [ ] Setting ${LAN_IP}/${LAN_PREFIX} on ${LAN_IFACE}..."
+    _apply_static "$LAN_IFACE" "$LAN_IP" "$LAN_PREFIX" ""
+    printf "\r  ${GREEN}[✓]${RESET} LAN: ${LAN_IP}/${LAN_PREFIX} on ${LAN_IFACE}\n"
+
+    # Apply WAN
+    if [[ "$WAN_DHCP" == "yes" ]]; then
+        printf "  [ ] Requesting DHCP on ${WAN_IFACE}..."
+        _apply_dhcp "$WAN_IFACE"
+        local _leased
+        _leased=$(ip -4 addr show "$WAN_IFACE" 2>/dev/null | grep -oP '(?<=inet )\S+' | head -1 || true)
+        if [[ -n "$_leased" ]]; then
+            printf "\r  ${GREEN}[✓]${RESET} WAN: ${_leased} (DHCP) on ${WAN_IFACE}\n"
+        else
+            printf "\r  ${YELLOW}[!]${RESET} WAN: DHCP in progress on ${WAN_IFACE} (may take a moment)\n"
+        fi
+    else
+        printf "  [ ] Setting ${WAN_IP}/${WAN_PREFIX} on ${WAN_IFACE}..."
+        _apply_static "$WAN_IFACE" "$WAN_IP" "$WAN_PREFIX" "$WAN_GW"
+        printf "\r  ${GREEN}[✓]${RESET} WAN: ${WAN_IP}/${WAN_PREFIX} on ${WAN_IFACE}\n"
+    fi
+
+    # Persist via netplan
+    printf "  [ ] Writing netplan config..."
+    _write_netplan "$WAN_IFACE" "$WAN_DHCP" "$WAN_IP" "$WAN_PREFIX" "$WAN_GW" \
+                   "$LAN_IFACE" "$LAN_IP" "$LAN_PREFIX" 2>/dev/null \
+        && printf "\r  ${GREEN}[✓]${RESET} Netplan config written — IP will persist after reboot\n" \
+        || printf "\r  ${YELLOW}[!]${RESET} Netplan not available — IP applied for this session only\n"
+
+    # Enable IP forwarding now
+    sysctl -w net.ipv4.ip_forward=1 2>/dev/null || true
+
+    echo ""
+    ok "Network configured:"
+    echo -e "    LAN: ${BOLD}${LAN_IP}${RESET}/${LAN_PREFIX} on ${LAN_IFACE}"
+    [[ "$WAN_DHCP" == "yes" ]] && echo -e "    WAN: DHCP on ${WAN_IFACE}" \
+        || echo -e "    WAN: ${BOLD}${WAN_IP}${RESET}/${WAN_PREFIX} on ${WAN_IFACE}"
+    echo ""
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
 # CHOOSE INSTALL METHOD
 # ─────────────────────────────────────────────────────────────────────────────
 METHOD="${INSTALL_METHOD:-}"
@@ -345,6 +625,7 @@ echo ""
 
 system_check
 detect_and_clean
+configure_network
 
 # ─────────────────────────────────────────────────────────────────────────────
 # HELPER — Post-install diagnostic check
