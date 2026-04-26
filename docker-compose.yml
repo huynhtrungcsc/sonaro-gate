@@ -84,12 +84,32 @@ services:
       SONARO_SKIP_SETUP: ""   # empty = CLI wizard runs on first interactive start
 
     volumes:
-      # Bind mounts so Sonaro Gate writes to the real host filesystem
+      # ── Networking config (read + write) ───────────────────────────────────
+      # netplan: Sonaro writes /etc/netplan/90-sonaro.yaml and calls `netplan apply`
       - /etc/netplan:/etc/netplan
+
+      # sysctl.d: Sonaro writes ip_forward, conntrack, and hardening rules
       - /etc/sysctl.d:/etc/sysctl.d
+
+      # iptables: persistent rules saved here by iptables-save
       - /etc/iptables:/etc/iptables
+
+      # ── IDS/IPS (Suricata) ────────────────────────────────────────────────
       - /etc/suricata:/etc/suricata
       - /var/log/suricata:/var/log/suricata
+
+      # ── DHCP lease files (read-only) — used by ip_mode detection ──────────
+      # dhclient (isc-dhcp-client) lease files
+      - /var/lib/dhcp:/var/lib/dhcp:ro
+
+      # dhcpcd lease / info files
+      - /var/lib/dhcpcd:/var/lib/dhcpcd:ro
+
+      # systemd-networkd lease files (Ubuntu 22.04+ with systemd-networkd)
+      # Needed for detectIpMode() Method 2: /run/systemd/netif/leases/<ifindex>
+      - /run/systemd/netif:/run/systemd/netif:ro
+
+      # ── Host kernel / hardware info (read-only) ───────────────────────────
       - /proc:/host/proc:ro
       - /sys:/host/sys:ro
 

@@ -120,6 +120,25 @@ docker compose up -d
 # Requires privileged: true + network_mode: host for real iptables
 ```
 
+**Docker image base (production stage):** `ubuntu:24.04` — required for native `netplan` support.
+Alpine was replaced because `netplan` is Ubuntu-specific. Builder stage remains `node:20-alpine`.
+
+**Packages installed in production container:**
+- `iproute2` — `ip addr`, `ip route`, `ip link`
+- `iptables` — full iptables/ip6tables stack
+- `ipset` — dynamic address sets
+- `netplan.io` — `netplan generate` / `netplan apply` (Ubuntu-native)
+- `isc-dhcp-client` (`dhclient`) — DHCP client for WAN apply
+- `dhcpcd` — lightweight DHCP fallback
+- `procps` — `pgrep` for detecting running `dhclient` processes
+
+**DHCP lease volume mounts** (for `detectIpMode()` in `server/agent.ts`):
+| Mount | Purpose |
+|---|---|
+| `/var/lib/dhcp:/var/lib/dhcp:ro` | dhclient lease files |
+| `/var/lib/dhcpcd:/var/lib/dhcpcd:ro` | dhcpcd lease/info files |
+| `/run/systemd/netif:/run/systemd/netif:ro` | systemd-networkd lease files (Ubuntu 22.04+) |
+
 ---
 
 ## 4. Key Files Reference
@@ -162,7 +181,7 @@ docker compose up -d
 | File | Purpose |
 |---|---|
 | `scripts/setup-ubuntu.sh` | Comprehensive Ubuntu 24.04 installer — Suricata, WireGuard, OpenVPN, dnsmasq, PostgreSQL, systemd |
-| `Dockerfile` | Multi-stage: Vite builder → Node.js 20 Alpine production image |
+| `Dockerfile` | Multi-stage: node:20-alpine builder (Vite + drizzle-kit) → ubuntu:24.04 production runtime (netplan, dhclient, iptables, dhcpcd) |
 | `docker-compose.yml` | PostgreSQL 16 + Sonaro Gate stack |
 | `.env.example` | Environment variable template |
 

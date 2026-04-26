@@ -57,7 +57,10 @@ apt-get install -y -qq \
   postgresql postgresql-contrib \
   jq unzip \
   systemd-resolved \
-  netplan.io
+  netplan.io \
+  isc-dhcp-client \
+  dhcpcd \
+  procps
 
 ok "Core packages installed"
 
