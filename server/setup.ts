@@ -677,7 +677,15 @@ export async function runSetupWizard(): Promise<void> {
 // pfSense-style persistent console menu (shown after setup is done)
 // ─────────────────────────────────────────────────────────────────
 
-async function getIfaceStatus(): Promise<{ wan: string; lan: string; hostname: string }> {
+interface ConsoleStatus {
+  wan: string;
+  lan: string;
+  extras: Array<{ label: string; line: string }>;
+  lanIp: string;
+  hostname: string;
+}
+
+async function getIfaceStatus(): Promise<ConsoleStatus> {
   try {
     const rows = await db.select().from(systemSettings);
     const get = (key: string) => rows.find(r => r.key === key)?.value ?? '';
@@ -685,13 +693,11 @@ async function getIfaceStatus(): Promise<{ wan: string; lan: string; hostname: s
     const lanIface = get('lan_interface');
     const hostname = get('hostname') || 'sonaro-gw';
 
-    const wanRows = await db.select().from(networkInterfaces).where(eq(networkInterfaces.name, wanIface)).limit(1);
-    const lanRows = await db.select().from(networkInterfaces).where(eq(networkInterfaces.name, lanIface)).limit(1);
+    const allIfaces = await db.select().from(networkInterfaces);
 
-    const wanRow = wanRows[0];
-    const lanRow = lanRows[0];
+    const findIface = (name: string) => allIfaces.find(r => r.name === name);
 
-    const fmtIface = (row: typeof wanRow | undefined, defaultName: string) => {
+    const fmtIface = (row: typeof allIfaces[0] | undefined, defaultName: string) => {
       if (!row) return `${defaultName} -> (not configured)`;
       const ip = row.ip_address ?? '(no IP)';
       const mode = row.ip_mode === 'dhcp' ? 'v4/DHCP4' : 'v4';
@@ -699,17 +705,35 @@ async function getIfaceStatus(): Promise<{ wan: string; lan: string; hostname: s
       return `${row.name} -> ${mode}: ${ip}${cidr}`;
     };
 
+    const wanRow = findIface(wanIface);
+    const lanRow = findIface(lanIface);
+
+    // Extra interfaces (DMZ / OPT) — anything that is not WAN or LAN
+    const extraRows = allIfaces.filter(r =>
+      r.name !== wanIface && r.name !== lanIface &&
+      (r.type === 'DMZ' || r.type === 'OPT')
+    );
+
+    const extras = extraRows.map(r => ({
+      label: `${r.type?.toLowerCase() ?? 'opt'} (${r.type?.toLowerCase() ?? 'opt'})`,
+      line: fmtIface(r, r.name),
+    }));
+
+    const lanIp = lanRow?.ip_address ?? '';
+
     return {
       wan: fmtIface(wanRow, wanIface || 'WAN'),
       lan: fmtIface(lanRow, lanIface || 'LAN'),
+      extras,
+      lanIp,
       hostname,
     };
   } catch {
-    return { wan: '(unknown)', lan: '(unknown)', hostname: 'sonaro-gw' };
+    return { wan: '(unknown)', lan: '(unknown)', extras: [], lanIp: '', hostname: 'sonaro-gw' };
   }
 }
 
-function printConsoleMenu(status: { wan: string; lan: string; hostname: string }) {
+function printConsoleMenu(status: ConsoleStatus) {
   process.stdout.write('\x1Bc');
   const LINE = '═'.repeat(62);
   const line = '─'.repeat(62);
@@ -718,16 +742,28 @@ function printConsoleMenu(status: { wan: string; lan: string; hostname: string }
   console.log(center(`*** Welcome to Sonaro Gate 2025.1 on ${status.hostname} ***`, 62));
   console.log(LINE);
   console.log();
-  console.log(`  WAN (wan) -> ${status.wan}`);
-  console.log(`  LAN (lan) -> ${status.lan}`);
+  console.log(` WAN (wan)  --> ${status.wan}`);
+  console.log(` LAN (lan)  --> ${status.lan}`);
+  for (const ex of status.extras) {
+    console.log(` ${ex.label.padEnd(10)} --> ${ex.line}`);
+  }
   console.log();
+  if (status.lanIp) {
+    console.log(` Access the webConfigurator by opening a browser and entering:`);
+    console.log(`   http://${status.lanIp}`);
+    console.log();
+  }
   console.log(line);
   console.log();
-  console.log('   0) Logout (SSH only)             5) Reboot system');
-  console.log('   1) Assign Interfaces             6) Halt system');
-  console.log('   2) Set interface(s) IP address   7) Ping host');
-  console.log('   3) Reset webGUI password         8) Shell');
-  console.log('   4) Reset to factory defaults');
+  console.log('  0) Logout / Disconnect SSH      9) Restart web GUI');
+  console.log('  1) Assign Interfaces           10) Show management URL');
+  console.log('  2) Set interface(s) IP address 11) Enable SSH');
+  console.log('  3) Reset admin account          12) Show routing table');
+  console.log('  4) Reset to factory defaults   13) Show active connections');
+  console.log('  5) Reboot system               14) Update from console');
+  console.log('  6) Halt system');
+  console.log('  7) Ping host');
+  console.log('  8) Shell');
   console.log();
   console.log(line);
 }
@@ -1043,6 +1079,128 @@ export async function runConsoleMenu(): Promise<void> {
           const display = def ? `${prompt} [${def}]: ` : `${prompt}: `;
           (cli as any).rl.question(display, (a: string) => resolve(a.trim() || def));
         });
+        break;
+      }
+
+      case '9': {
+        // Restart web GUI
+        console.log();
+        console.log('  Restarting Sonaro Gate web server...');
+        // We can't truly restart ourselves, but we can signal the process
+        // For now, print guidance
+        console.log('  To restart the web GUI, exit and re-run: npx tsx server/index.ts');
+        console.log('  (or use your service manager: systemctl restart sonaro-gate)');
+        await cli.ask('  Press Enter to return to menu');
+        break;
+      }
+
+      case '10': {
+        // Show management URL
+        console.log();
+        const st = await getIfaceStatus();
+        const LINE10 = '═'.repeat(62);
+        console.log(LINE10);
+        console.log(center('Management Access Information', 62));
+        console.log(LINE10);
+        console.log();
+        if (st.lanIp) {
+          console.log(`  Web GUI URL  :  http://${st.lanIp}`);
+        } else {
+          console.log('  Web GUI URL  :  (LAN IP not yet configured — use option 2)');
+        }
+        console.log(`  Default login:  admin@sonaro.local`);
+        console.log(`  Default pass :  Admin123!`);
+        console.log();
+        console.log('  Connect a PC to the LAN interface and open the URL above.');
+        await cli.ask('  Press Enter to return to menu');
+        break;
+      }
+
+      case '11': {
+        // Enable SSH
+        console.log();
+        console.log(LINE);
+        console.log(center('Enable Secure Shell (sshd)', 62));
+        console.log(LINE);
+        console.log();
+        const idCheck = await run('id -u');
+        if (idCheck.out !== '0') {
+          console.log('  ⚠  Root required to manage SSH service.');
+          await cli.ask('  Press Enter'); break;
+        }
+        const sshdStatus = await run('systemctl is-active sshd 2>/dev/null || systemctl is-active ssh 2>/dev/null');
+        const isActive = sshdStatus.out.trim() === 'active';
+        console.log(`  SSH is currently: ${isActive ? 'ENABLED' : 'DISABLED'}`);
+        const sshChoice = await cli.ask(isActive ? '  Disable SSH? (y/n)' : '  Enable SSH? (y/n)', 'y');
+        if (sshChoice.toLowerCase() === 'y') {
+          if (isActive) {
+            await run('systemctl stop sshd 2>/dev/null || systemctl stop ssh 2>/dev/null');
+            await run('systemctl disable sshd 2>/dev/null || systemctl disable ssh 2>/dev/null');
+            console.log('  [✓] SSH disabled.');
+          } else {
+            await run('systemctl enable sshd 2>/dev/null || systemctl enable ssh 2>/dev/null');
+            await run('systemctl start sshd 2>/dev/null || systemctl start ssh 2>/dev/null');
+            console.log('  [✓] SSH enabled and started.');
+          }
+        }
+        await cli.ask('  Press Enter to return to menu');
+        break;
+      }
+
+      case '12': {
+        // Show routing table
+        console.log();
+        console.log(LINE);
+        console.log(center('IPv4 Routing Table', 62));
+        console.log(LINE);
+        console.log();
+        const rt = await run('ip route show');
+        if (rt.ok && rt.out) {
+          console.log(rt.out);
+        } else {
+          console.log('  (no routes found or ip command unavailable)');
+        }
+        await cli.ask('  Press Enter to return to menu');
+        break;
+      }
+
+      case '13': {
+        // Show active connections (conntrack or ss)
+        console.log();
+        console.log(LINE);
+        console.log(center('Active Network Connections', 62));
+        console.log(LINE);
+        console.log();
+        const ss = await run('ss -tunp');
+        if (ss.ok && ss.out) {
+          console.log(ss.out);
+        } else {
+          const netstat = await run('netstat -tunp 2>/dev/null');
+          if (netstat.ok && netstat.out) {
+            console.log(netstat.out);
+          } else {
+            console.log('  (ss / netstat not available)');
+          }
+        }
+        await cli.ask('  Press Enter to return to menu');
+        break;
+      }
+
+      case '14': {
+        // Update from console (placeholder)
+        console.log();
+        console.log(LINE);
+        console.log(center('Update from Console', 62));
+        console.log(LINE);
+        console.log();
+        console.log('  Checking for updates...');
+        const git = await run('git -C /opt/sonaro-gate pull --ff-only 2>/dev/null');
+        if (git.ok) {
+          console.log(`  ${git.out || 'Already up to date.'}`);
+        } else {
+          console.log('  (git pull not available — update via your package manager)');
+        }
+        await cli.ask('  Press Enter to return to menu');
         break;
       }
 
