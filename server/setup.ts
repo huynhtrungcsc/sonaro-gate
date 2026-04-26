@@ -267,7 +267,7 @@ async function enableNat(wanIface: string): Promise<void> {
 }
 
 async function saveIfacesToDb(
-  wanIface: string, wanIp: string | null, wanMask: string, wanGateway: string,
+  wanIface: string, wanDhcp: boolean, wanIp: string | null, wanMask: string, wanGateway: string,
   lanIface: string, lanIp: string, lanMask: string,
 ): Promise<void> {
   const upsert = async (data: any) => {
@@ -281,11 +281,15 @@ async function saveIfacesToDb(
 
   await upsert({
     name: wanIface, type: 'WAN', status: 'up',
-    ip_address: wanIp, subnet: wanMask || null, gateway: wanGateway || null,
+    ip_address: wanDhcp ? (wanIp || null) : wanIp,
+    subnet: wanDhcp ? null : (wanMask || null),
+    gateway: wanDhcp ? null : (wanGateway || null),
+    ip_mode: wanDhcp ? 'dhcp' : 'static',
   });
   await upsert({
     name: lanIface, type: 'LAN', status: 'up',
     ip_address: lanIp, subnet: lanMask, gateway: null,
+    ip_mode: 'static',
   });
 }
 
@@ -536,7 +540,7 @@ export async function runSetupWizard(): Promise<void> {
 
     // Save interfaces
     await saveIfacesToDb(
-      wanNic.name, wanDhcp ? wanIp : wanIp, wanMask, wanGateway,
+      wanNic.name, wanDhcp, wanIp, wanMask, wanGateway,
       lanNic.name, lanIp, lanMask,
     );
 
