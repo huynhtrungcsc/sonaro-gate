@@ -62,11 +62,15 @@ ENV DEBIAN_FRONTEND=noninteractive
 # procps            : pgrep / ps — used to detect running dhclient processes
 # ca-certificates   : TLS bundle for outbound HTTPS calls
 # libstdc++6        : C++ runtime needed by some native Node.js addons
+# xz-utils          : needed to unpack Node.js official tarball
 #
 # Node.js is NOT installed from apt — Ubuntu 24.04 ships Node 18 which
 # is incompatible with @noble/hashes@2.0.1 (requires >=20.19.0).
-# Instead, the Node 20 binary is copied from the builder stage so no
-# external network call is required during this layer.
+# We also cannot copy the node binary from the alpine builder stage because
+# alpine uses musl libc while Ubuntu uses glibc — the binaries are
+# incompatible and cause "/usr/bin/env: 'node': No such file or directory".
+# Instead, download the official Node 20 LTS glibc tarball directly from
+# nodejs.org during the Docker build step (network is available here).
 RUN apt-get update -qq && apt-get install -y --no-install-recommends \
     iproute2 \
     iptables \
@@ -80,13 +84,17 @@ RUN apt-get update -qq && apt-get install -y --no-install-recommends \
     procps \
     ca-certificates \
     libstdc++6 \
+    xz-utils \
     && rm -rf /var/lib/apt/lists/*
 
-# ── Node.js 20 runtime — copied from builder, no network required ─────────────
-COPY --from=builder /usr/local/bin/node   /usr/local/bin/node
-COPY --from=builder /usr/local/bin/npm    /usr/local/bin/npm
-COPY --from=builder /usr/local/bin/npx    /usr/local/bin/npx
-COPY --from=builder /usr/local/lib/node_modules /usr/local/lib/node_modules
+# ── Node.js 20 LTS — official glibc binary (compatible with Ubuntu 24.04) ─────
+# Pinned to 20.19.1 LTS. Update this line to upgrade Node.
+ARG NODE_VERSION=20.19.1
+RUN ARCH=$(dpkg --print-architecture | sed 's/amd64/x64/;s/arm64/arm64/') \
+    && curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-${ARCH}.tar.xz" \
+       | tar -xJ -C /usr/local --strip-components=1 \
+    && node --version \
+    && npm --version
 
 WORKDIR /app
 
