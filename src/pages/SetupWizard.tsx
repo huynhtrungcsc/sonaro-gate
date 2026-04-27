@@ -16,6 +16,8 @@ interface NicInfo {
   type: string;
   status: string;
   mac: string | null;
+  subnet: string | null;
+  gateway: string | null;
 }
 
 type WanMode = 'dhcp' | 'static';
@@ -86,10 +88,27 @@ export default function SetupWizard() {
         setNics(list);
         const wan = list.find(n => n.type === 'WAN') ?? list[0];
         const lan = list.find(n => n.type === 'LAN') ?? list[1];
+
+        // Derive subnet mask from CIDR prefix if needed
+        const cidrToMask = (cidr: string | null): string => {
+          if (!cidr) return '255.255.255.0';
+          if (cidr.includes('.')) return cidr;
+          const n = parseInt(cidr, 10);
+          if (isNaN(n)) return '255.255.255.0';
+          const m = (0xffffffff << (32 - n)) >>> 0;
+          return [(m >> 24) & 0xff, (m >> 16) & 0xff, (m >> 8) & 0xff, m & 0xff].join('.');
+        };
+
         setForm(f => ({
           ...f,
-          wanName: wan?.name ?? '',
-          lanName: lan?.name ?? '',
+          wanName:    wan?.name   ?? '',
+          wanMode:    (wan?.ip_mode === 'static' ? 'static' : 'dhcp') as WanMode,
+          wanIp:      wan?.ip_address ?? '',
+          wanSubnet:  cidrToMask(wan?.subnet ?? null),
+          wanGateway: wan?.gateway ?? '',
+          lanName:    lan?.name   ?? '',
+          lanIp:      lan?.ip_address ?? '192.168.1.1',
+          lanSubnet:  cidrToMask(lan?.subnet ?? null),
         }));
         setLoading(false);
       })
@@ -243,7 +262,14 @@ export default function SetupWizard() {
 
             {step === 6 && (
               <button
-                onClick={() => navigate('/', { replace: true })}
+                onClick={() => {
+                  if (doneResult) {
+                    const port = window.location.port || '5000';
+                    window.location.href = `http://${doneResult.lanIp}:${port}/`;
+                  } else {
+                    navigate('/', { replace: true });
+                  }
+                }}
                 className="flex items-center gap-1.5 px-4 py-1.5 text-[11px] font-semibold bg-[hsl(142,70%,35%)] hover:bg-[hsl(142,70%,30%)] text-white transition-colors"
               >
                 <Shield className="w-3.5 h-3.5" />
@@ -656,7 +682,8 @@ function StepPassword({ form, set }: { form: WizardState; set: (k: keyof WizardS
 // ─── Step 6: Done ────────────────────────────────────────────────────────────
 
 function StepDone({ result }: { result: { lanIp: string; root: boolean } }) {
-  const managementUrl = `http://${result.lanIp}`;
+  const port = window.location.port || '5000';
+  const managementUrl = `http://${result.lanIp}:${port}`;
   return (
     <div>
       <DescRow>
@@ -671,18 +698,35 @@ function StepDone({ result }: { result: { lanIp: string; root: boolean } }) {
           </div>
 
           <div className="border border-[#ddd] bg-[#f9f9f9] p-3 text-[11px] space-y-2">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <Globe className="w-3.5 h-3.5 text-[hsl(142,70%,35%)] shrink-0" />
               <span className="text-[#888]">Management URL:</span>
-              <span className="font-mono font-medium text-[hsl(142,70%,35%)]">
+              <a
+                href={managementUrl}
+                className="font-mono font-medium text-[hsl(142,70%,35%)] underline hover:text-[hsl(142,70%,28%)]"
+              >
                 {managementUrl}
-              </span>
+              </a>
             </div>
             <div className="flex items-center gap-2">
               <Shield className="w-3.5 h-3.5 text-[#888] shrink-0" />
               <span className="text-[#888]">Login:</span>
               <span className="font-mono">admin@sonaro.local</span>
             </div>
+          </div>
+
+          <div className="flex items-start gap-2 p-2 bg-blue-50 border border-blue-200 text-[11px] text-blue-800">
+            <Wifi className="w-3.5 h-3.5 mt-0.5 shrink-0 text-blue-500" />
+            <p>
+              If this page becomes unreachable after setup (network IP changed), open{' '}
+              <a
+                href={managementUrl}
+                className="font-mono font-semibold underline"
+              >
+                {managementUrl}
+              </a>
+              {' '}directly from a device on the LAN network.
+            </p>
           </div>
 
           {!result.root && (
