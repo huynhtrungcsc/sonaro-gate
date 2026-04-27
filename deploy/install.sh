@@ -820,9 +820,23 @@ print_post_install_guide() {
         echo -e "  ${DIM}Logs:${RESET}    ${CYAN}journalctl -u sonaro-gate -f${RESET}"
     fi
 
-    # ⑥ File locations
+    # ⑥ Console menu (pfSense-style)
     echo ""
-    hdr "  ⑥ Important file locations"
+    hdr "  ⑥ Console menu (pfSense-style) — run from SSH at any time"
+    sep
+    echo -e "  ${BOLD}${CYAN}sonaro-console${RESET}"
+    echo ""
+    echo -e "  ${DIM}0)${RESET} Logout              ${DIM}7)${RESET} Ping host"
+    echo -e "  ${DIM}1)${RESET} Assign Interfaces   ${DIM}8)${RESET} Shell"
+    echo -e "  ${DIM}2)${RESET} Set interface IPs   ${DIM}9)${RESET} Restart service"
+    echo -e "  ${DIM}3)${RESET} Reset admin password${DIM}10)${RESET} Show web URL"
+    echo -e "  ${DIM}4)${RESET} Reboot             ${DIM}11)${RESET} System info"
+    echo -e "  ${DIM}5)${RESET} Halt               ${DIM}12)${RESET} Routing table"
+    echo -e "  ${DIM}6)${RESET} View logs          ${DIM}13)${RESET} Active connections"
+
+    # ⑦ File locations
+    echo ""
+    hdr "  ⑦ Important file locations"
     sep
     echo -e "  ${DIM}Install dir:${RESET}   ${INSTALL_DIR}"
     echo -e "  ${DIM}Config (.env):${RESET} ${INSTALL_DIR}/.env   ${YELLOW}← keep private! contains passwords${RESET}"
@@ -1208,6 +1222,30 @@ verify_host_network_stack() {
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# CONSOLE MENU INSTALLER
+# Installs deploy/console.sh as /usr/local/bin/sonaro-console so admins can
+# reconfigure IPs, reset passwords, view logs, etc. without re-running install.
+# ─────────────────────────────────────────────────────────────────────────────
+install_console_menu() {
+    local _src="${INSTALL_DIR}/deploy/console.sh"
+    local _dst="/usr/local/bin/sonaro-console"
+
+    if [[ ! -f "$_src" ]]; then
+        warn "deploy/console.sh not found — skipping console menu install"
+        return 0
+    fi
+
+    cp "$_src" "$_dst"
+    chmod +x "$_dst"
+    ok "Console menu installed: ${BOLD}sonaro-console${RESET}"
+    info "  Run ${BOLD}sonaro-console${RESET} from SSH at any time to:"
+    info "    • Reconfigure IP addresses (option 2)"
+    info "    • Assign WAN / LAN interfaces (option 1)"
+    info "    • Reset admin password (option 3)"
+    info "    • Restart, reboot, view logs, and more"
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
 # DOCKER INSTALL
 # ─────────────────────────────────────────────────────────────────────────────
 install_docker_mode() {
@@ -1328,6 +1366,7 @@ ENV
         echo -e "${YELLOW}═══════════════════════════════════════════════════════════${RESET}"
     fi
 
+    install_console_menu
     run_post_diagnostics "docker" "$PORT"
     local LAN_IP
     LAN_IP=$(ip route get 1 2>/dev/null | grep -oP 'src \K\S+' | head -1 || echo "<YOUR_SERVER_IP>")
@@ -1438,6 +1477,7 @@ ENV
         echo -e "${YELLOW}═══════════════════════════════════════════════════════════${RESET}"
     fi
 
+    install_console_menu
     run_post_diagnostics "native" "$PORT"
     local LAN_IP
     LAN_IP=$(ip route get 1 2>/dev/null | grep -oP 'src \K\S+' | head -1 || echo "<YOUR_SERVER_IP>")
