@@ -72,6 +72,24 @@ get_wan_iface() {
 get_lan_iface() {
     local _l=""
     [[ -f "$ENV_FILE" ]] && _l=$(grep -oP '(?<=LAN_INTERFACE=)\S+' "$ENV_FILE" 2>/dev/null || true)
+    if [[ -z "$_l" ]]; then
+        # Auto-detect: first physical interface that is UP, has an IP,
+        # is not the WAN interface, and is not a virtual/docker bridge.
+        local _wan
+        _wan=$(get_wan_iface)
+        while IFS= read -r _line; do
+            local _ifc
+            _ifc=$(echo "$_line" | awk -F': ' '{print $2}' | sed 's/@.*//')
+            [[ "$_ifc" == "lo" ]]    && continue
+            [[ "$_ifc" == "$_wan" ]] && continue
+            [[ "$_ifc" =~ ^(docker|br-|veth|virbr|vmnet|bond|dummy|tun|tap) ]] && continue
+            local _addr
+            _addr=$(ip -4 addr show "$_ifc" 2>/dev/null | grep -oP '(?<=inet )\S+' | head -1 || true)
+            [[ -z "$_addr" ]] && continue
+            _l="$_ifc"
+            break
+        done < <(ip -o link show 2>/dev/null | grep -v '^[0-9]*: lo')
+    fi
     echo "${_l:-}"
 }
 
