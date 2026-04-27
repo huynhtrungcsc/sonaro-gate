@@ -407,8 +407,18 @@ configure_network() {
         # Args: wan_iface wan_dhcp wan_ip wan_prefix wan_gw lan_iface lan_ip lan_prefix
         local _wi="$1" _wd="$2" _wip="$3" _wpfx="$4" _wgw="$5"
         local _li="$6" _lip="$7" _lpfx="$8"
-        local _np_file="/etc/netplan/90-sonaro.yaml"
         mkdir -p /etc/netplan
+        # Overwrite the existing netplan file rather than creating a new one —
+        # having two files causes interface conflicts on Ubuntu 24.04.
+        # Prefer 50-cloud-init.yaml (Ubuntu default), then any existing .yaml,
+        # fall back to 50-cloud-init.yaml if /etc/netplan is empty.
+        local _np_file
+        if [[ -f "/etc/netplan/50-cloud-init.yaml" ]]; then
+            _np_file="/etc/netplan/50-cloud-init.yaml"
+        else
+            _np_file=$(ls /etc/netplan/*.yaml 2>/dev/null | sort | head -1)
+            _np_file="${_np_file:-/etc/netplan/50-cloud-init.yaml}"
+        fi
 
         {
             echo "network:"
@@ -434,6 +444,8 @@ configure_network() {
             echo "      addresses: [${_lip}/${_lpfx}]"
         } > "$_np_file"
         chmod 600 "$_np_file"
+        # Remove stale 90-sonaro.yaml from previous installs to avoid conflicts
+        [[ "$_np_file" != "/etc/netplan/90-sonaro.yaml" ]] && rm -f /etc/netplan/90-sonaro.yaml 2>/dev/null || true
         if command -v netplan &>/dev/null; then
             netplan apply 2>/dev/null && ok "netplan applied — config will persist after reboot"
         fi
