@@ -356,12 +356,20 @@ configure_network() {
 
     _apply_static() {
         local _ifc="$1" _ip="$2" _prefix="$3" _gw="$4"
+        # Save existing default gateway BEFORE flushing — restore it if user
+        # did not supply one, so internet access is not lost after reconfiguration.
+        local _saved_gw
+        _saved_gw=$(ip route show default 2>/dev/null | awk '/^default/{print $3; exit}')
         ip link set "$_ifc" up 2>/dev/null || true
         ip addr flush dev "$_ifc" 2>/dev/null || true
         ip addr add "${_ip}/${_prefix}" dev "$_ifc" 2>/dev/null || true
         if [[ -n "$_gw" ]]; then
             ip route del default 2>/dev/null || true
             ip route add default via "$_gw" dev "$_ifc" 2>/dev/null || true
+        elif [[ -n "$_saved_gw" ]]; then
+            # No new gateway given — put the old one back so routing still works
+            ip route del default 2>/dev/null || true
+            ip route add default via "$_saved_gw" dev "$_ifc" 2>/dev/null || true
         fi
     }
 
@@ -468,10 +476,16 @@ configure_network() {
     _WAN_TYPE="${_WAN_TYPE:-1}"
     if [[ "$_WAN_TYPE" == "2" ]]; then
         WAN_DHCP="no"
-        read -rp "  WAN IP address: " WAN_IP < /dev/tty
+        # Pre-fill with the interface's current IP and system default gateway
+        local _cur_wan_ip _cur_wan_gw
+        _cur_wan_ip=$(ip -4 addr show "$WAN_IFACE" 2>/dev/null | grep -oP '(?<=inet )\d+\.\d+\.\d+\.\d+' | head -1 || true)
+        _cur_wan_gw=$(ip route show default 2>/dev/null | awk '/^default/{print $3; exit}')
+        read -rp "  WAN IP address${_cur_wan_ip:+ [${_cur_wan_ip}]}: " WAN_IP < /dev/tty
+        WAN_IP="${WAN_IP:-${_cur_wan_ip}}"
         read -rp "  Subnet mask [255.255.255.0]: " WAN_MASK < /dev/tty
         WAN_MASK="${WAN_MASK:-255.255.255.0}"
-        read -rp "  Default gateway (leave blank if none): " WAN_GW < /dev/tty
+        read -rp "  Default gateway${_cur_wan_gw:+ [${_cur_wan_gw}]}: " WAN_GW < /dev/tty
+        WAN_GW="${WAN_GW:-${_cur_wan_gw}}"
     fi
 
     # ── LAN ────────────────────────────────────────────────────────────────────
